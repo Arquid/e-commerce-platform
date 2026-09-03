@@ -51,6 +51,14 @@ export const handleWebhook = async (req: Request, res: Response) => {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as any;
     await Order.findByIdAndUpdate(session.metadata.orderId, { status: "paid" });
+  } else if (event.type === "checkout.session.expired") {
+    // The customer left checkout without paying; Stripe sends this ~24h later.
+    // Only cancel if the order never got paid through some other path.
+    const session = event.data.object as any;
+    await Order.findOneAndUpdate(
+      { _id: session.metadata.orderId, status: "pending" },
+      { status: "cancelled" }
+    );
   }
 
   res.json({ received: true });
