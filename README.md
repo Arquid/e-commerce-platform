@@ -17,7 +17,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 | Validation     | Zod                                          |
 | Security       | Helmet, express-rate-limit                   |
 | Payments       | Stripe Checkout                              |
-| Testing        | Vitest, Supertest, mongodb-memory-server     |
+| Testing        | Vitest — Supertest + mongodb-memory-server (backend), React Testing Library (frontend) |
 
 ## Features
 
@@ -32,6 +32,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Order history for logged-in users
 - Route protection for authenticated pages
 - Rate limiting and security headers (Helmet) on the API
+- A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
 
 ## Project structure
 
@@ -51,16 +52,17 @@ e-commerce-platform/
 │   │   └── seed.ts       Sample product seed script
 │   └── tests/            Vitest + Supertest test suite
 └── client/     React + Vite + TypeScript frontend
-    └── src/
-        ├── app/          Redux store
-        ├── features/     Redux slices and RTK Query API slices
-        ├── components/   Reusable UI components
-        └── pages/        Route-level pages
+    ├── src/
+    │   ├── app/          Redux store
+    │   ├── features/     Redux slices and RTK Query API slices
+    │   ├── components/   Reusable UI components (Navbar, ProductCard, ErrorBoundary, ...)
+    │   └── pages/        Route-level pages
+    └── tests/            Vitest + React Testing Library test suite
 ```
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 20+ to run the app. Running the **frontend test suite** needs Node 22.22+ or 24.15+ (a `jsdom` requirement) — CI runs on Node 24.
 - A MongoDB database (e.g. a free [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) cluster)
 - A [Stripe](https://dashboard.stripe.com/register) account (test mode is sufficient)
 - [Stripe CLI](https://docs.stripe.com/stripe-cli) for testing webhooks locally
@@ -120,14 +122,25 @@ With all three processes running (backend, frontend, Stripe CLI), open **http://
 
 ## Testing
 
-The backend has an automated test suite covering the auth, product, and checkout/webhook flows:
+Both the backend and frontend have automated test suites.
+
+**Backend** — covers the auth, product, and checkout/webhook flows:
 
 ```bash
 cd server
 npm run test
 ```
 
-Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. See `server/tests/`.
+Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. See `server/tests/`.
+
+**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`) and key components (`ProductCard`, `NotFoundPage`, `ErrorBoundary`):
+
+```bash
+cd client
+npm run test
+```
+
+Component tests render with React Testing Library against a real (but isolated, per-test) Redux store — no backend or network calls involved. See `client/tests/`.
 
 ## Continuous integration
 
@@ -137,10 +150,12 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- No frontend tests yet (backend has full coverage of auth/products/checkout; the client does not)
+- Frontend test coverage is a starting point (state slices + a few components), not exhaustive — pages like `CartPage` and `HomePage` aren't covered yet
 - JWT is stored in `localStorage`, which is simpler but more XSS-exposed than an httpOnly cookie
 - No admin UI — promoting a user to `admin` or managing products/orders requires direct database access or the seed script
 - No pagination upper bound on the products API (`?limit=` accepts any value)
+- `/api/health` always returns `ok` without checking the actual database connection state
+- No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
 
 ## License
 
