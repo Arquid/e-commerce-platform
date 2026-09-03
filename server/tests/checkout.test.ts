@@ -49,13 +49,19 @@ async function createPendingOrder(email: string) {
     stock: 20,
   });
 
-  await request(app)
+  const checkoutRes = await request(app)
     .post("/api/payments/create-checkout-session")
     .set("Authorization", `Bearer ${token}`)
     .send({
       items: [{ productId: product.id, name: product.name, price: product.price, quantity: 1 }],
       shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
     });
+
+  if (checkoutRes.status !== 200) {
+    throw new Error(
+      `createPendingOrder helper failed: create-checkout-session returned ${checkoutRes.status} ${JSON.stringify(checkoutRes.body)}`
+    );
+  }
 
   const order = await Order.findOne({});
   return order!.id as string;
