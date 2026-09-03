@@ -1,3 +1,5 @@
+import { useState } from "react";
+import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
 import type { RootState } from "../app/store";
@@ -9,12 +11,15 @@ export default function CartPage() {
   const dispatch = useDispatch();
   const [createCheckoutSession, { isLoading }] = useCreateCheckoutSessionMutation();
 
+  const [address, setAddress] = useState({ line1: "", city: "", postalCode: "", country: "" });
+
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-  const handleCheckout = async () => {
+  const handleCheckout = async (e: FormEvent) => {
+    e.preventDefault();
     const res = await createCheckoutSession({
       items: items.map((i) => ({ productId: i.productId, name: i.name, price: i.price, quantity: i.quantity })),
-      shippingAddress: { line1: "Example 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+      shippingAddress: address,
     }).unwrap();
     window.location.href = res.url; // redirect to Stripe Checkout
   };
@@ -50,6 +55,7 @@ export default function CartPage() {
 
               <div className="flex items-center rounded-md border border-slate-300">
                 <button
+                  type="button"
                   onClick={() =>
                     dispatch(updateQuantity({ productId: i.productId, quantity: Math.max(1, i.quantity - 1) }))
                   }
@@ -60,6 +66,7 @@ export default function CartPage() {
                 </button>
                 <span className="w-8 text-center text-sm tabular-nums">{i.quantity}</span>
                 <button
+                  type="button"
                   onClick={() => dispatch(updateQuantity({ productId: i.productId, quantity: i.quantity + 1 }))}
                   className="px-2.5 py-1 text-slate-500 hover:bg-slate-100"
                   aria-label="Increase quantity"
@@ -73,6 +80,7 @@ export default function CartPage() {
               </span>
 
               <button
+                type="button"
                 onClick={() => dispatch(removeItem(i.productId))}
                 className="text-sm text-slate-400 hover:text-red-600 transition-colors"
                 aria-label="Remove item"
@@ -83,24 +91,66 @@ export default function CartPage() {
           ))}
         </div>
 
-        <div className="h-fit rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold text-slate-900">Order summary</h2>
-          <div className="mt-4 flex justify-between text-sm text-slate-600">
+        <form onSubmit={handleCheckout} className="h-fit rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="font-semibold text-slate-900">Shipping address</h2>
+          <div className="mt-4 flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+              Address
+              <input
+                required
+                value={address.line1}
+                onChange={(e) => setAddress({ ...address, line1: e.target.value })}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+              City
+              <input
+                required
+                value={address.city}
+                onChange={(e) => setAddress({ ...address, city: e.target.value })}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+                Postal code
+                <input
+                  required
+                  value={address.postalCode}
+                  onChange={(e) => setAddress({ ...address, postalCode: e.target.value })}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+                Country
+                <input
+                  required
+                  value={address.country}
+                  onChange={(e) => setAddress({ ...address, country: e.target.value })}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-5 flex justify-between text-sm text-slate-600">
             <span>Subtotal</span>
             <span>{total.toFixed(2)} €</span>
           </div>
-          <div className="mt-4 flex justify-between border-t border-slate-200 pt-4 text-lg font-semibold text-slate-900">
+          <div className="mt-3 flex justify-between border-t border-slate-200 pt-4 text-lg font-semibold text-slate-900">
             <span>Total</span>
             <span>{total.toFixed(2)} €</span>
           </div>
+
           <button
+            type="submit"
             disabled={isLoading}
-            onClick={handleCheckout}
             className="mt-5 w-full rounded-lg bg-emerald-600 py-3 font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? "Redirecting to payment..." : "Proceed to checkout"}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );

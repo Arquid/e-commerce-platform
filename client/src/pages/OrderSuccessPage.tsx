@@ -1,8 +1,16 @@
+import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useDispatch } from "react-redux";
+import { clearCart } from "../features/cart/cartSlice";
 
 export default function OrderSuccessPage() {
   const [searchParams] = useSearchParams();
   const orderId = searchParams.get("orderId");
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    dispatch(clearCart());
+  }, [dispatch]);
 
   return (
     <div className="mx-auto max-w-md py-8 text-center">
