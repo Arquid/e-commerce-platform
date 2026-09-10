@@ -77,3 +77,42 @@ describe("POST /api/products", () => {
     expect(list.body.total).toBe(1);
   });
 });
+
+describe("DELETE /api/products/:id", () => {
+  it("rejects the request when not authenticated", async () => {
+    const res = await request(app).delete("/api/products/000000000000000000000000");
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects the request for a non-admin user", async () => {
+    const token = await registerAndLogin("customer2@example.com", "customer");
+    const res = await request(app)
+      .delete("/api/products/000000000000000000000000")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for a non-existent product", async () => {
+    const token = await registerAndLogin("admin3@example.com", "admin");
+    const res = await request(app)
+      .delete("/api/products/000000000000000000000000")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("deletes an existing product for an admin user", async () => {
+    const token = await registerAndLogin("admin4@example.com", "admin");
+    const created = await request(app)
+      .post("/api/products")
+      .set("Authorization", `Bearer ${token}`)
+      .send(validProduct);
+
+    const res = await request(app)
+      .delete(`/api/products/${created.body._id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+
+    const list = await request(app).get("/api/products");
+    expect(list.body.total).toBe(0);
+  });
+});

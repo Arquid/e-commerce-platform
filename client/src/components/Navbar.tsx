@@ -27,6 +27,12 @@ export default function Navbar() {
             </Link>
           )}
 
+          {user?.role === "admin" && (
+            <Link to="/admin/products" className="hover:text-slate-900 transition-colors">
+              Admin
+            </Link>
+          )}
+
           <Link
             to="/cart"
             className="relative flex items-center gap-1.5 hover:text-slate-900 transition-colors"

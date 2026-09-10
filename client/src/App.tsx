@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import PrivateRoute from "./components/PrivateRoute";
+import AdminRoute from "./components/AdminRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HomePage from "./pages/HomePage";
 import ProductDetailPage from "./pages/ProductDetailPage";
@@ -10,6 +11,7 @@ import RegisterPage from "./pages/RegisterPage";
 import OrderHistoryPage from "./pages/OrderHistoryPage";
 import OrderSuccessPage from "./pages/OrderSuccessPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import AdminProductsPage from "./pages/AdminProductsPage";
 
 export default function App() {
   return (
@@ -26,6 +28,9 @@ export default function App() {
             <Route path="/order-success" element={<OrderSuccessPage />} />
             <Route element={<PrivateRoute />}>
               <Route path="/orders" element={<OrderHistoryPage />} />
+            </Route>
+            <Route element={<AdminRoute />}>
+              <Route path="/admin/products" element={<AdminProductsPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

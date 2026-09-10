@@ -24,11 +24,18 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(morgan("dev"));
 
+// Rate limiting is a production safeguard, not something the automated test
+// suite should have to work around — tests make far more auth requests per
+// minute than any real user, so they'd trip the limiter and fail for the
+// wrong reason.
+const isTestEnv = process.env.NODE_ENV === "test";
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => isTestEnv,
 });
 
 const authLimiter = rateLimit({
@@ -37,6 +44,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many attempts, please try again later." },
+  skip: () => isTestEnv,
 });
 
 app.use("/api", apiLimiter);

@@ -33,6 +33,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Route protection for authenticated pages
 - Rate limiting and security headers (Helmet) on the API
 - A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
+- Admin-only product management UI (list, add, delete) at `/admin/products`
 
 ## Project structure
 
@@ -131,7 +132,7 @@ cd server
 npm run test
 ```
 
-Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. See `server/tests/`.
+Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. That same setup file sets `NODE_ENV=test`, which the API rate limiters check to skip themselves — otherwise the auth rate limit (10 requests / 15 min) would trip mid-suite, since tests register/log in far more often than a real user would. See `server/tests/`.
 
 **Frontend** — covers the Redux slices (`cartSlice`, `authSlice`) and key components (`ProductCard`, `NotFoundPage`, `ErrorBoundary`):
 
@@ -152,7 +153,8 @@ This project is a working MVP, not fully production-hardened. Notably:
 
 - Frontend test coverage is a starting point (state slices + a few components), not exhaustive — pages like `CartPage` and `HomePage` aren't covered yet
 - JWT is stored in `localStorage`, which is simpler but more XSS-exposed than an httpOnly cookie
-- No admin UI — promoting a user to `admin` or managing products/orders requires direct database access or the seed script
+- The admin UI covers products only (list/add/delete) — order status management (e.g. marking an order "shipped") still requires direct database access
+- Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
 - No pagination upper bound on the products API (`?limit=` accepts any value)
 - `/api/health` always returns `ok` without checking the actual database connection state
 - No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
