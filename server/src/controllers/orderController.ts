@@ -12,3 +12,18 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
   if (!order) return res.status(404).json({ message: "Order not found" });
   res.json(order);
 }
+
+export const getAllOrders = async (_req: AuthRequest, res: Response) => {
+  const orders = await Order.find().sort({ createdAt: -1 }).populate("user", "name email");
+  res.json(orders);
+};
+
+export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
+  const order = await Order.findByIdAndUpdate(
+    req.params.id,
+    { status: req.body.status },
+    { returnDocument: "after" }
+  );
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  res.json(order);
+};

@@ -34,6 +34,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Rate limiting and security headers (Helmet) on the API
 - A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
 - Admin-only product management UI (list, add, delete) at `/admin/products`
+- Admin-only order management UI (list every order, update its status) at `/admin/orders`
 
 ## Project structure
 
@@ -125,7 +126,7 @@ With all three processes running (backend, frontend, Stripe CLI), open **http://
 
 Both the backend and frontend have automated test suites.
 
-**Backend** — covers the auth, product, and checkout/webhook flows:
+**Backend** — covers the auth, product, order (including admin order management), and checkout/webhook flows:
 
 ```bash
 cd server
@@ -153,7 +154,6 @@ This project is a working MVP, not fully production-hardened. Notably:
 
 - Frontend test coverage is a starting point (state slices + a few components), not exhaustive — pages like `CartPage` and `HomePage` aren't covered yet
 - JWT is stored in `localStorage`, which is simpler but more XSS-exposed than an httpOnly cookie
-- The admin UI covers products only (list/add/delete) — order status management (e.g. marking an order "shipped") still requires direct database access
 - Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
 - No pagination upper bound on the products API (`?limit=` accepts any value)
 - `/api/health` always returns `ok` without checking the actual database connection state

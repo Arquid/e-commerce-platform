@@ -5,12 +5,18 @@ export interface CheckoutSessionRequest {
   shippingAddress: { line1: string; city: string; postalCode: string; country: string };
 }
 
+export type OrderStatus = "pending" | "paid" | "shipped" | "delivered" | "cancelled";
+
 export interface Order {
   _id: string;
   items: { product: string; name: string; quantity: number; price: number }[];
   totalAmount: number;
-  status: "pending" | "paid" | "shipped" | "delivered" | "cancelled";
+  status: OrderStatus;
   createdAt: string;
+}
+
+export interface AdminOrder extends Order {
+  user: { _id: string; name: string; email: string } | string;
 }
 
 export const ordersApi = api.injectEndpoints({
@@ -22,7 +28,20 @@ export const ordersApi = api.injectEndpoints({
       query: () => "/orders",
       providesTags: ["Order"],
     }),
+    getAllOrders: builder.query<AdminOrder[], void>({
+      query: () => "/orders/all",
+      providesTags: ["Order"],
+    }),
+    updateOrderStatus: builder.mutation<Order, { id: string; status: OrderStatus }>({
+      query: ({ id, status }) => ({ url: `/orders/${id}/status`, method: "PATCH", body: { status } }),
+      invalidatesTags: ["Order"],
+    }),
   }),
 });
 
-export const { useCreateCheckoutSessionMutation, useGetMyOrdersQuery } = ordersApi;
+export const {
+  useCreateCheckoutSessionMutation,
+  useGetMyOrdersQuery,
+  useGetAllOrdersQuery,
+  useUpdateOrderStatusMutation,
+} = ordersApi;

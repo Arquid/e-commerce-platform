@@ -11,6 +11,10 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const updateOrderStatusSchema = z.object({
+  status: z.enum(["pending", "paid", "shipped", "delivered", "cancelled"]),
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().min(1, "Description is required"),
