@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useGetAllOrdersQuery, useUpdateOrderStatusMutation } from "../features/orders/ordersApiSlice";
 import type { OrderStatus } from "../features/orders/ordersApiSlice";
 
@@ -14,6 +15,16 @@ const statusStyles: Record<OrderStatus, string> = {
 export default function AdminOrdersPage() {
   const { data: orders, isLoading } = useGetAllOrdersQuery();
   const [updateOrderStatus] = useUpdateOrderStatusMutation();
+  const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
+
+  const handleStatusChange = async (orderId: string, status: OrderStatus) => {
+    setFailedOrderId(null);
+    try {
+      await updateOrderStatus({ id: orderId, status }).unwrap();
+    } catch {
+      setFailedOrderId(orderId);
+    }
+  };
 
   return (
     <div>
@@ -41,17 +52,22 @@ export default function AdminOrdersPage() {
 
               <span className="font-medium text-slate-900">{o.totalAmount.toFixed(2)} €</span>
 
-              <select
-                value={o.status}
-                onChange={(e) => updateOrderStatus({ id: o._id, status: e.target.value as OrderStatus })}
-                className={`rounded-full border-0 px-3 py-1 text-xs font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-200 ${statusStyles[o.status]}`}
-              >
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-col items-end gap-1">
+                <select
+                  value={o.status}
+                  onChange={(e) => handleStatusChange(o._id, e.target.value as OrderStatus)}
+                  className={`rounded-full border-0 px-3 py-1 text-xs font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-200 ${statusStyles[o.status]}`}
+                >
+                  {statusOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                {failedOrderId === o._id && (
+                  <span className="text-xs text-red-600">Update failed — try again</span>
+                )}
+              </div>
             </div>
           ))}
         </div>
