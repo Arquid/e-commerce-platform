@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import express from "express";
+import mongoose from "mongoose";
 import cors from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
@@ -50,7 +51,12 @@ const authLimiter = rateLimit({
 app.use("/api", apiLimiter);
 app.use("/api/auth", authLimiter);
 
-app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/api/health", (_req, res) => {
+  const dbConnected = mongoose.connection.readyState === 1;
+  res
+    .status(dbConnected ? 200 : 503)
+    .json({ status: dbConnected ? "ok" : "degraded", db: dbConnected ? "connected" : "disconnected" });
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);

@@ -13,6 +13,7 @@ export default function AdminProductsPage() {
   const [createProduct, { isLoading: isCreating, isError: createFailed }] = useCreateProductMutation();
   const [deleteProduct] = useDeleteProductMutation();
   const [form, setForm] = useState(emptyForm);
+  const [failedProductId, setFailedProductId] = useState<string | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -32,8 +33,12 @@ export default function AdminProductsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("Delete this product?")) {
-      await deleteProduct(id);
+    if (!window.confirm("Delete this product?")) return;
+    setFailedProductId(null);
+    try {
+      await deleteProduct(id).unwrap();
+    } catch {
+      setFailedProductId(id);
     }
   };
 
@@ -59,12 +64,17 @@ export default function AdminProductsPage() {
                     {p.category} · {p.price.toFixed(2)} € · stock {p.stock}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleDelete(p._id)}
-                  className="text-sm text-slate-400 hover:text-red-600 transition-colors"
-                >
-                  Delete
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    onClick={() => handleDelete(p._id)}
+                    className="text-sm text-slate-400 hover:text-red-600 transition-colors"
+                  >
+                    Delete
+                  </button>
+                  {failedProductId === p._id && (
+                    <span className="text-xs text-red-600">Delete failed — try again</span>
+                  )}
+                </div>
               </div>
             ))}
         </div>

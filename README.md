@@ -126,7 +126,7 @@ With all three processes running (backend, frontend, Stripe CLI), open **http://
 
 Both the backend and frontend have automated test suites.
 
-**Backend** — covers the auth, product, order (including admin order management), and checkout/webhook flows:
+**Backend** — covers the auth, product, order (including admin order management), checkout/webhook, and health-check flows:
 
 ```bash
 cd server
@@ -135,14 +135,14 @@ npm run test
 
 Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. That same setup file sets `NODE_ENV=test`, which the API rate limiters check to skip themselves — otherwise the auth rate limit (10 requests / 15 min) would trip mid-suite, since tests register/log in far more often than a real user would. See `server/tests/`.
 
-**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`) and key components (`ProductCard`, `NotFoundPage`, `ErrorBoundary`, `AdminOrdersPage`):
+**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`) and every major page/component (`ProductCard`, `NotFoundPage`, `ErrorBoundary`, `HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`):
 
 ```bash
 cd client
 npm run test
 ```
 
-Most component tests render with React Testing Library against a real (but isolated, per-test) Redux store — no backend or network calls involved. `AdminOrdersPage` instead mocks its RTK Query hooks directly (`useGetAllOrdersQuery` / `useUpdateOrderStatusMutation`) rather than the network layer, which keeps the test focused on the component's own logic — including the inline "Update failed" message shown when a status change is rejected. See `client/tests/`.
+Simpler component tests render with React Testing Library against a real (but isolated, per-test) Redux store — no backend or network calls involved. Pages that call the API (`HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`) instead mock their RTK Query hooks directly (e.g. `useGetProductsQuery`, `useCreateProductMutation`) rather than the network layer — this keeps each test focused on the component's own logic (form submission, pagination, quantity controls, inline error messages) without needing to fake HTTP responses. See `client/tests/`.
 
 ## Continuous integration
 
@@ -152,13 +152,11 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- Frontend test coverage is a starting point (state slices + a handful of components), not exhaustive — pages like `CartPage`, `HomePage`, and `AdminProductsPage` aren't covered yet
-- `AdminProductsPage` doesn't surface an error if deleting a product fails (create already does) — `AdminOrdersPage` has this covered for status updates, `AdminProductsPage` doesn't yet for deletes
 - JWT is stored in `localStorage`, which is simpler but more XSS-exposed than an httpOnly cookie
 - Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
 - No pagination upper bound on the products API (`?limit=` accepts any value)
-- `/api/health` always returns `ok` without checking the actual database connection state
 - No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
+- No audit log of admin actions (who deleted a product or changed an order's status, and when)
 
 ## License
 
