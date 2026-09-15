@@ -1,7 +1,7 @@
 import { api } from "../api/apiSlice";
 
 export interface CheckoutSessionRequest {
-  items: { productId: string; name: string; price: number; quantity: number }[];
+  items: { productId: string; quantity: number }[];
   shippingAddress: { line1: string; city: string; postalCode: string; country: string };
 }
 

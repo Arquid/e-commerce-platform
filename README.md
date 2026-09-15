@@ -35,6 +35,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
 - Admin-only product management UI (list, add, delete) at `/admin/products`
 - Admin-only order management UI (list every order, update its status) at `/admin/orders`
+- Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
 
 ## Project structure
 

@@ -53,7 +53,7 @@ async function createPendingOrder(email: string) {
     .post("/api/payments/create-checkout-session")
     .set("Authorization", `Bearer ${token}`)
     .send({
-      items: [{ productId: product.id, name: product.name, price: product.price, quantity: 1 }],
+      items: [{ productId: product.id, quantity: 1 }],
       shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
     });
 
@@ -91,7 +91,7 @@ describe("POST /api/payments/create-checkout-session", () => {
       .post("/api/payments/create-checkout-session")
       .set("Authorization", `Bearer ${token}`)
       .send({
-        items: [{ productId: product.id, name: product.name, price: product.price, quantity: 2 }],
+        items: [{ productId: product.id, quantity: 2 }],
         shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
       });
 
@@ -103,6 +103,69 @@ describe("POST /api/payments/create-checkout-session", () => {
     expect(order?.status).toBe("pending");
     expect(order?.totalAmount).toBe(50);
     expect(order?.items).toHaveLength(1);
+  });
+
+  it("rejects an empty items array", async () => {
+    const token = await registerAndLogin("empty-items@example.com");
+    const res = await request(app)
+      .post("/api/payments/create-checkout-session")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [],
+        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects the request when a product does not exist", async () => {
+    const token = await registerAndLogin("missing-product@example.com");
+    const res = await request(app)
+      .post("/api/payments/create-checkout-session")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [{ productId: "000000000000000000000000", quantity: 1 }],
+        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("uses the product's real price from the database, ignoring any price sent by the client", async () => {
+    const token = await registerAndLogin("price-tamper@example.com");
+    const product = await Product.create({
+      name: "Expensive Watch",
+      description: "For price-tampering testing",
+      price: 249,
+      category: "electronics",
+      imageUrl: "https://example.com/watch.png",
+      stock: 5,
+    });
+
+    const res = await request(app)
+      .post("/api/payments/create-checkout-session")
+      .set("Authorization", `Bearer ${token}`)
+      // A malicious client could still add extra fields like `price` to the
+      // JSON body — Zod strips unknown keys, and the controller never reads
+      // them anyway, but this proves the end-to-end result is unaffected.
+      .send({
+        items: [{ productId: product.id, quantity: 1, price: 0.01, name: "Expensive Watch" }],
+        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+      });
+
+    expect(res.status).toBe(200);
+
+    const order = await Order.findOne({});
+    expect(order?.totalAmount).toBe(249);
+    expect(order?.items[0].price).toBe(249);
+
+    expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        line_items: [
+          expect.objectContaining({
+            price_data: expect.objectContaining({ unit_amount: 24900 }),
+          }),
+        ],
+      })
+    );
   });
 });
 

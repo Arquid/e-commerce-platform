@@ -18,7 +18,7 @@ export default function CartPage() {
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
     const res = await createCheckoutSession({
-      items: items.map((i) => ({ productId: i.productId, name: i.name, price: i.price, quantity: i.quantity })),
+      items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
       shippingAddress: address,
     }).unwrap();
     window.location.href = res.url; // redirect to Stripe Checkout

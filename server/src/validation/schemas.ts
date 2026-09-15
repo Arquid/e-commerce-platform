@@ -11,6 +11,23 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const createCheckoutSessionSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1, "productId is required"),
+        quantity: z.number().int().positive("Quantity must be at least 1"),
+      })
+    )
+    .min(1, "Cart cannot be empty"),
+  shippingAddress: z.object({
+    line1: z.string().min(1, "Address is required"),
+    city: z.string().min(1, "City is required"),
+    postalCode: z.string().min(1, "Postal code is required"),
+    country: z.string().min(1, "Country is required"),
+  }),
+});
+
 export const updateOrderStatusSchema = z.object({
   status: z.enum(["pending", "paid", "shipped", "delivered", "cancelled"]),
 });

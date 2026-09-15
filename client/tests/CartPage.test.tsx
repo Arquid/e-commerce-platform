@@ -118,7 +118,7 @@ describe("CartPage", () => {
 
     await waitFor(() => {
       expect(trigger).toHaveBeenCalledWith({
-        items: [{ productId: "p1", name: "Test Sneakers", price: 20, quantity: 1 }],
+        items: [{ productId: "p1", quantity: 1 }],
         shippingAddress: { line1: "Testikatu 1", city: "Helsinki", postalCode: "00100", country: "FI" },
       });
     });
