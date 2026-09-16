@@ -120,6 +120,15 @@ stripe listen --forward-to localhost:5000/api/payments/webhook
 
 Copy the `whsec_...` value it prints into `server/.env` as `STRIPE_WEBHOOK_SECRET`.
 
+### Running all three at once
+
+Once `server`, `client`, and `stripe login` are set up as above, you can start the backend, frontend, and Stripe webhook listener together from the repository root instead of using three separate terminals:
+
+```bash
+npm install
+npm run dev
+```
+
 ## Running the app
 
 With all three processes running (backend, frontend, Stripe CLI), open **http://localhost:5173**. Use Stripe's test card `4242 4242 4242 4242` with any future expiry date and any CVC to complete a checkout.

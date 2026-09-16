@@ -1,0 +1,13 @@
+{
+  "name": "e-commerce-platform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Dev orchestration for the e-commerce platform (server, client, Stripe CLI)",
+  "scripts": {
+    "dev": "concurrently -n server,client,stripe -c blue,green,magenta \"npm run dev --prefix server\" \"npm run dev --prefix client\" \"stripe listen --forward-to localhost:5000/api/payments/webhook\""
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
