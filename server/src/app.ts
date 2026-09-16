@@ -12,6 +12,7 @@ import authRoutes from "./routes/authRoutes";
 import productRoutes from "./routes/productRoutes";
 import orderRoutes from "./routes/orderRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
+import auditLogRoutes from "./routes/auditLogRoutes";
 
 import { notFound, errorHandler } from "./middleware/errorHandler";
 
@@ -62,6 +63,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/admin/audit-logs", auditLogRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

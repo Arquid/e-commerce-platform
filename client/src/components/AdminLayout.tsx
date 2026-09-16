@@ -16,6 +16,9 @@ export default function AdminLayout() {
         <NavLink to="/admin/orders" className={tabClass}>
           Orders
         </NavLink>
+        <NavLink to="/admin/audit-log" className={tabClass}>
+          Audit log
+        </NavLink>
       </div>
       <Outlet />
     </div>

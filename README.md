@@ -36,6 +36,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Admin-only product management UI (list, add, delete) at `/admin/products`
 - Admin-only order management UI (list every order, update its status) at `/admin/orders`
 - Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
+- Audit log of admin actions (product created/deleted, order status changes) with who did what and when, at `/admin/audit-log`
 
 ## Project structure
 
@@ -157,7 +158,6 @@ This project is a working MVP, not fully production-hardened. Notably:
 - Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
 - No pagination upper bound on the products API (`?limit=` accepts any value)
 - No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
-- No audit log of admin actions (who deleted a product or changed an order's status, and when)
 
 ## License
 

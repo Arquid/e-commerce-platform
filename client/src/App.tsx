@@ -14,6 +14,7 @@ import OrderSuccessPage from "./pages/OrderSuccessPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import AdminProductsPage from "./pages/AdminProductsPage";
 import AdminOrdersPage from "./pages/AdminOrdersPage";
+import AdminAuditLogPage from "./pages/AdminAuditLogPage";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
               <Route element={<AdminLayout />}>
                 <Route path="/admin/products" element={<AdminProductsPage />} />
                 <Route path="/admin/orders" element={<AdminOrdersPage />} />
+                <Route path="/admin/audit-log" element={<AdminAuditLogPage />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFoundPage />} />

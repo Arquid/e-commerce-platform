@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import Product from "../models/Product";
+import { AuthRequest } from "../middleware/auth";
+import { logAdminAction } from "../utils/auditLog";
 
 export const getProducts = async (req: Request, res: Response) => {
   const { category, minPrice, maxPrice, search, page = "1", limit = "12", sort } = req.query;
@@ -31,13 +33,20 @@ export const getProductById = async (req: Request, res: Response) => {
   res.json(product);
 };
 
-export const createProduct = async (req: Request, res: Response) => {
+export const createProduct = async (req: AuthRequest, res: Response) => {
   const product = await Product.create(req.body);
+  await logAdminAction(req.userId as string, "product.create", "Product", product.id, {
+    name: product.name,
+    price: product.price,
+  });
   res.status(201).json(product);
 };
 
-export const deleteProduct = async (req: Request, res: Response) => {
+export const deleteProduct = async (req: AuthRequest, res: Response) => {
   const product = await Product.findByIdAndDelete(req.params.id);
   if (!product) return res.status(404).json({ message: "Product not found" });
+  await logAdminAction(req.userId as string, "product.delete", "Product", product.id, {
+    name: product.name,
+  });
   res.json({ message: "Product deleted" });
 };

@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import Stripe from "stripe";
 import { stripe } from "../config/stripe";
 import Order from "../models/Order";
 import Product from "../models/Product";
@@ -69,23 +70,24 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
 // Stripe calls this endpoint directly (not the browser) to confirm payment.
 export const handleWebhook = async (req: Request, res: Response) => {
   const sig = req.headers["stripe-signature"] as string;
-  let event;
+  let event: Stripe.Event;
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET as string);
-  } catch (err: any) {
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Invalid signature";
+    return res.status(400).send(`Webhook Error: ${message}`);
   }
 
   if (event.type === "checkout.session.completed") {
-    const session = event.data.object as any;
-    await Order.findByIdAndUpdate(session.metadata.orderId, { status: "paid" });
+    const session = event.data.object as Stripe.Checkout.Session;
+    await Order.findByIdAndUpdate(session.metadata?.orderId, { status: "paid" });
   } else if (event.type === "checkout.session.expired") {
     // The customer left checkout without paying; Stripe sends this ~24h later.
     // Only cancel if the order never got paid through some other path.
-    const session = event.data.object as any;
+    const session = event.data.object as Stripe.Checkout.Session;
     await Order.findOneAndUpdate(
-      { _id: session.metadata.orderId, status: "pending" },
+      { _id: session.metadata?.orderId, status: "pending" },
       { status: "cancelled" }
     );
   }
