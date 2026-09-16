@@ -123,4 +123,19 @@ describe("CartPage", () => {
       });
     });
   });
+
+  it("shows an inline error when checkout fails, e.g. due to insufficient stock", async () => {
+    mockCheckout(vi.fn().mockReturnValue({ unwrap: () => Promise.reject(new Error("Not enough stock")) }));
+    renderCartPage([sampleItem]);
+
+    fireEvent.change(screen.getByLabelText("Address"), { target: { value: "Testikatu 1" } });
+    fireEvent.change(screen.getByLabelText("City"), { target: { value: "Helsinki" } });
+    fireEvent.change(screen.getByLabelText("Postal code"), { target: { value: "00100" } });
+    fireEvent.change(screen.getByLabelText("Country"), { target: { value: "FI" } });
+    fireEvent.click(screen.getByRole("button", { name: /proceed to checkout/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not start checkout/i)).toBeInTheDocument();
+    });
+  });
 });

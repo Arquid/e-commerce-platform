@@ -43,4 +43,10 @@ describe("ProductCard", () => {
       quantity: 1,
     });
   });
+
+  it("disables the button and shows 'Out of stock' when there is no stock left", () => {
+    renderWithProviders(<ProductCard product={{ ...product, stock: 0 }} />);
+    const button = screen.getByRole("button", { name: /out of stock/i });
+    expect(button).toBeDisabled();
+  });
 });

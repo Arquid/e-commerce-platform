@@ -167,6 +167,29 @@ describe("POST /api/payments/create-checkout-session", () => {
       })
     );
   });
+
+  it("rejects the request when the requested quantity exceeds available stock", async () => {
+    const token = await registerAndLogin("out-of-stock@example.com");
+    const product = await Product.create({
+      name: "Limited Edition Sneakers",
+      description: "Only a few left",
+      price: 89,
+      category: "shoes",
+      imageUrl: "https://example.com/sneakers.png",
+      stock: 2,
+    });
+
+    const res = await request(app)
+      .post("/api/payments/create-checkout-session")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [{ productId: product.id, quantity: 3 }],
+        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+      });
+
+    expect(res.status).toBe(400);
+    expect(await Order.countDocuments()).toBe(0);
+  });
 });
 
 describe("POST /api/payments/webhook", () => {
@@ -187,6 +210,53 @@ describe("POST /api/payments/webhook", () => {
     expect(res.status).toBe(200);
     const order = await Order.findById(orderId);
     expect(order?.status).toBe("paid");
+  });
+
+  it("decrements product stock when payment completes", async () => {
+    const orderId = await createPendingOrder("webhook-stock@example.com");
+    const order = await Order.findById(orderId);
+    const productId = order!.items[0].product;
+    const stockBefore = (await Product.findById(productId))!.stock;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce({
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId } } },
+    } as any);
+
+    await request(app)
+      .post("/api/payments/webhook")
+      .set("Content-Type", "application/json")
+      .set("stripe-signature", "test-signature")
+      .send(Buffer.from("{}"));
+
+    const stockAfter = (await Product.findById(productId))!.stock;
+    expect(stockAfter).toBe(stockBefore - order!.items[0].quantity);
+  });
+
+  it("does not decrement stock twice when the same completed event is redelivered", async () => {
+    const orderId = await createPendingOrder("webhook-stock-duplicate@example.com");
+    const order = await Order.findById(orderId);
+    const productId = order!.items[0].product;
+    const stockBefore = (await Product.findById(productId))!.stock;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId } } },
+    } as any);
+
+    await request(app)
+      .post("/api/payments/webhook")
+      .set("Content-Type", "application/json")
+      .set("stripe-signature", "test-signature")
+      .send(Buffer.from("{}"));
+    await request(app)
+      .post("/api/payments/webhook")
+      .set("Content-Type", "application/json")
+      .set("stripe-signature", "test-signature")
+      .send(Buffer.from("{}"));
+
+    const stockAfter = (await Product.findById(productId))!.stock;
+    expect(stockAfter).toBe(stockBefore - order!.items[0].quantity);
   });
 
   it("marks a pending order as cancelled on checkout.session.expired", async () => {

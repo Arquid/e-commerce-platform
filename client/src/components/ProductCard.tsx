@@ -27,7 +27,8 @@ export default function ProductCard({ product }: { product: Product }) {
         <div className="mt-auto flex items-center justify-between pt-2">
           <span className="text-lg font-semibold text-slate-900">{product.price.toFixed(2)} €</span>
           <button
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            disabled={product.stock === 0}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() =>
               dispatch(
                 addItem({
@@ -40,7 +41,7 @@ export default function ProductCard({ product }: { product: Product }) {
               )
             }
           >
-            Add to cart
+            {product.stock === 0 ? "Out of stock" : "Add to cart"}
           </button>
         </div>
       </div>

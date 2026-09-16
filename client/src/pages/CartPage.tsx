@@ -12,16 +12,22 @@ export default function CartPage() {
   const [createCheckoutSession, { isLoading }] = useCreateCheckoutSessionMutation();
 
   const [address, setAddress] = useState({ line1: "", city: "", postalCode: "", country: "" });
+  const [checkoutFailed, setCheckoutFailed] = useState(false);
 
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
-    const res = await createCheckoutSession({
-      items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-      shippingAddress: address,
-    }).unwrap();
-    window.location.href = res.url; // redirect to Stripe Checkout
+    setCheckoutFailed(false);
+    try {
+      const res = await createCheckoutSession({
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        shippingAddress: address,
+      }).unwrap();
+      window.location.href = res.url; // redirect to Stripe Checkout
+    } catch {
+      setCheckoutFailed(true);
+    }
   };
 
   if (items.length === 0) {
@@ -142,6 +148,12 @@ export default function CartPage() {
             <span>Total</span>
             <span>{total.toFixed(2)} €</span>
           </div>
+
+          {checkoutFailed && (
+            <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              Could not start checkout. One or more items may be out of stock — try adjusting the quantities.
+            </p>
+          )}
 
           <button
             type="submit"

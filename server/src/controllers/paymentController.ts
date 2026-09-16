@@ -32,6 +32,13 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       error.statusCode = 400;
       throw error;
     }
+    if (product.stock < i.quantity) {
+      const error = new Error(
+        `Not enough stock for "${product.name}" (${product.stock} available)`
+      ) as Error & { statusCode: number };
+      error.statusCode = 400;
+      throw error;
+    }
     return { product: product.id, name: product.name, price: product.price, quantity: i.quantity };
   });
 
@@ -81,7 +88,20 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    await Order.findByIdAndUpdate(session.metadata?.orderId, { status: "paid" });
+    // Only transition (and decrement stock) the first time this order is
+    // marked paid — Stripe can redeliver the same webhook event, and a
+    // second delivery must not decrement stock twice.
+    const order = await Order.findOneAndUpdate(
+      { _id: session.metadata?.orderId, status: "pending" },
+      { status: "paid" }
+    );
+    if (order) {
+      await Promise.all(
+        order.items.map((item) =>
+          Product.updateOne({ _id: item.product, stock: { $gte: item.quantity } }, { $inc: { stock: -item.quantity } })
+        )
+      );
+    }
   } else if (event.type === "checkout.session.expired") {
     // The customer left checkout without paying; Stripe sends this ~24h later.
     // Only cancel if the order never got paid through some other path.

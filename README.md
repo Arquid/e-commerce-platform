@@ -37,6 +37,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Admin-only order management UI (list every order, update its status) at `/admin/orders`
 - Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
 - Audit log of admin actions (product created/deleted, order status changes) with who did what and when, at `/admin/audit-log`
+- Stock enforcement: checkout is rejected if the requested quantity exceeds a product's available stock, and stock is decremented atomically once payment is confirmed — a duplicate webhook delivery never double-decrements it
 
 ## Project structure
 
