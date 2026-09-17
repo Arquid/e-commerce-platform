@@ -21,4 +21,13 @@ describe("Pagination", () => {
     fireEvent.click(screen.getByRole("button", { name: "3" }));
     expect(onPageChange).toHaveBeenCalledWith(3);
   });
+
+  it("renders a bounded number of buttons even with hundreds of pages", () => {
+    render(<Pagination page={150} pages={300} onPageChange={vi.fn()} />);
+    expect(screen.getAllByRole("button").length).toBeLessThan(10);
+    expect(screen.getByRole("button", { name: "1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "300" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "150" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "75" })).not.toBeInTheDocument();
+  });
 });

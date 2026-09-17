@@ -4,7 +4,6 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import morgan from "morgan";
-import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
@@ -23,7 +22,6 @@ app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 app.use(express.json());
-app.use(cookieParser());
 app.use(morgan("dev"));
 
 // Rate limiting is a production safeguard, not something the automated test
