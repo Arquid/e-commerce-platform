@@ -14,6 +14,7 @@ import paymentRoutes from "./routes/paymentRoutes";
 import auditLogRoutes from "./routes/auditLogRoutes";
 
 import { notFound, errorHandler } from "./middleware/errorHandler";
+import { parseTrustProxy } from "./config/trustProxy";
 
 const app = express();
 
@@ -22,7 +23,12 @@ const app = express();
 // blindly trusting it would let a client spoof its own IP and bypass the
 // rate limiters below when the app isn't actually behind a proxy.
 if (process.env.TRUST_PROXY) {
-  app.set("trust proxy", Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+  try {
+    app.set("trust proxy", parseTrustProxy(process.env.TRUST_PROXY));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
 }
 
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
