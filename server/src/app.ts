@@ -17,6 +17,14 @@ import { notFound, errorHandler } from "./middleware/errorHandler";
 
 const app = express();
 
+// Only trust X-Forwarded-For when explicitly told to (e.g. TRUST_PROXY=1 when
+// deployed behind Render/Railway/nginx/etc.) — never on by default, since
+// blindly trusting it would let a client spoof its own IP and bypass the
+// rate limiters below when the app isn't actually behind a proxy.
+if (process.env.TRUST_PROXY) {
+  app.set("trust proxy", Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
+
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 
 app.use(helmet());

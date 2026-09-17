@@ -160,6 +160,11 @@ Simpler component tests render with React Testing Library against a real (but is
 
 Every push and pull request to `main` runs a [GitHub Actions workflow](.github/workflows/ci.yml) that type-checks, lints, tests, and builds both the server and the client.
 
+## Deploying to production
+
+- The server fails fast with a clear error at startup if a required environment variable (`MONGO_URI`, `JWT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CLIENT_URL`) is missing, instead of booting and only failing on the first request that needs it.
+- If you deploy behind a reverse proxy (Render, Railway, Heroku, nginx, etc. — true for most hosting platforms), set `TRUST_PROXY=1` in `server/.env`. Without it, `express-rate-limit` can't reliably tell users apart by IP once requests arrive via a proxy's `X-Forwarded-For` header. Leave it unset for local development — blindly trusting that header when there's no proxy in front would let a client spoof its own IP and dodge rate limiting.
+
 ## Known limitations
 
 This project is a working MVP, not fully production-hardened. Notably:

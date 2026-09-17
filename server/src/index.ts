@@ -1,3 +1,8 @@
+import "dotenv/config";
+import { validateEnv } from "./config/validateEnv";
+
+validateEnv();
+
 import app from "./app";
 import { connectDB } from "./config/db";
 
