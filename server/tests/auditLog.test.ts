@@ -100,7 +100,7 @@ describe("Admin action audit logging", () => {
     const ordersRes = await request(app)
       .get("/api/orders/all")
       .set("Authorization", `Bearer ${admin.token}`);
-    const orderId = ordersRes.body[0]._id as string;
+    const orderId = ordersRes.body.orders[0]._id as string;
 
     const updateRes = await request(app)
       .patch(`/api/orders/${orderId}/status`)

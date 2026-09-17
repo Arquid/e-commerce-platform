@@ -19,17 +19,20 @@ export interface AdminOrder extends Order {
   user: { _id: string; name: string; email: string } | string;
 }
 
+interface OrdersResponse { orders: Order[]; total: number; page: number; pages: number; }
+interface AdminOrdersResponse { orders: AdminOrder[]; total: number; page: number; pages: number; }
+
 export const ordersApi = api.injectEndpoints({
   endpoints: (builder) => ({
     createCheckoutSession: builder.mutation<{ url: string }, CheckoutSessionRequest>({
       query: (body) => ({ url: "/payments/create-checkout-session", method: "POST", body }),
     }),
-    getMyOrders: builder.query<Order[], void>({
-      query: () => "/orders",
+    getMyOrders: builder.query<OrdersResponse, { page?: number; limit?: number } | void>({
+      query: (params) => ({ url: "/orders", params: params ?? undefined }),
       providesTags: ["Order"],
     }),
-    getAllOrders: builder.query<AdminOrder[], void>({
-      query: () => "/orders/all",
+    getAllOrders: builder.query<AdminOrdersResponse, { page?: number; limit?: number } | void>({
+      query: (params) => ({ url: "/orders/all", params: params ?? undefined }),
       providesTags: ["Order"],
     }),
     updateOrderStatus: builder.mutation<Order, { id: string; status: OrderStatus }>({

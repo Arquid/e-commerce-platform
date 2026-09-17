@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useGetProductsQuery } from "../features/products/productApiSlice";
 import ProductCard from "../components/ProductCard";
+import Pagination from "../components/Pagination";
 
 export default function HomePage() {
   const [category, setCategory] = useState("");
@@ -74,23 +75,7 @@ export default function HomePage() {
             ))}
           </div>
 
-          {data.pages > 1 && (
-            <div className="mt-10 flex justify-center gap-1.5">
-              {Array.from({ length: data.pages }).map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setPage(i + 1)}
-                  className={`h-9 min-w-9 rounded-md px-3 text-sm font-medium transition-colors ${
-                    page === i + 1
-                      ? "bg-blue-600 text-white"
-                      : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-          )}
+          <Pagination page={page} pages={data.pages} onPageChange={setPage} />
         </>
       )}
     </div>

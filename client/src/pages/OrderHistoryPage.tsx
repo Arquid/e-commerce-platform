@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useGetMyOrdersQuery } from "../features/orders/ordersApiSlice";
+import Pagination from "../components/Pagination";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700",
@@ -10,7 +12,8 @@ const statusStyles: Record<string, string> = {
 };
 
 export default function OrderHistoryPage() {
-  const { data: orders, isLoading } = useGetMyOrdersQuery();
+  const [page, setPage] = useState(1);
+  const { data, isLoading } = useGetMyOrdersQuery({ page, limit: 10 });
 
   return (
     <div>
@@ -24,7 +27,7 @@ export default function OrderHistoryPage() {
         </div>
       )}
 
-      {!isLoading && orders?.length === 0 && (
+      {!isLoading && data?.orders.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-white px-4 py-16 text-center">
           <p className="font-medium text-slate-900">No orders yet</p>
           <p className="mt-1 text-sm text-slate-500">Your past orders will show up here.</p>
@@ -37,23 +40,27 @@ export default function OrderHistoryPage() {
         </div>
       )}
 
-      {!isLoading && orders && orders.length > 0 && (
-        <div className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
-          {orders.map((o) => (
-            <div key={o._id} className="flex items-center justify-between gap-4 p-4">
-              <div>
-                <p className="font-medium text-slate-900">Order #{o._id.slice(-6)}</p>
-                <p className="text-sm text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</p>
+      {!isLoading && data && data.orders.length > 0 && (
+        <>
+          <div className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+            {data.orders.map((o) => (
+              <div key={o._id} className="flex items-center justify-between gap-4 p-4">
+                <div>
+                  <p className="font-medium text-slate-900">Order #{o._id.slice(-6)}</p>
+                  <p className="text-sm text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</p>
+                </div>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${statusStyles[o.status] ?? "bg-slate-100 text-slate-700"}`}
+                >
+                  {o.status}
+                </span>
+                <span className="font-semibold text-slate-900">{o.totalAmount.toFixed(2)} €</span>
               </div>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${statusStyles[o.status] ?? "bg-slate-100 text-slate-700"}`}
-              >
-                {o.status}
-              </span>
-              <span className="font-semibold text-slate-900">{o.totalAmount.toFixed(2)} €</span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+
+          <Pagination page={page} pages={data.pages} onPageChange={setPage} />
+        </>
       )}
     </div>
   );

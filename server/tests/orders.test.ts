@@ -58,7 +58,28 @@ describe("GET /api/orders", () => {
 
     const res = await request(app).get("/api/orders").set("Authorization", `Bearer ${alice.token}`);
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
+    expect(res.body.orders).toHaveLength(1);
+    expect(res.body.total).toBe(1);
+  });
+
+  it("paginates results and rejects an invalid page parameter", async () => {
+    const alice = await registerAndLogin("alice-paginated@example.com");
+    await createOrderFor(alice.user.id);
+    await createOrderFor(alice.user.id);
+    await createOrderFor(alice.user.id);
+
+    const res = await request(app)
+      .get("/api/orders?page=1&limit=2")
+      .set("Authorization", `Bearer ${alice.token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.orders).toHaveLength(2);
+    expect(res.body.total).toBe(3);
+    expect(res.body.pages).toBe(2);
+
+    const invalid = await request(app)
+      .get("/api/orders?page=not-a-number")
+      .set("Authorization", `Bearer ${alice.token}`);
+    expect(invalid.status).toBe(400);
   });
 });
 
@@ -90,7 +111,8 @@ describe("GET /api/orders/all", () => {
 
     const res = await request(app).get("/api/orders/all").set("Authorization", `Bearer ${admin.token}`);
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(2);
+    expect(res.body.orders).toHaveLength(2);
+    expect(res.body.total).toBe(2);
   });
 });
 

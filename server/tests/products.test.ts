@@ -37,6 +37,16 @@ describe("GET /api/products", () => {
     expect(res.body.products).toEqual([]);
     expect(res.body.total).toBe(0);
   });
+
+  it("rejects a non-numeric page parameter instead of returning a broken response", async () => {
+    const res = await request(app).get("/api/products?page=not-a-number");
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a limit above the maximum allowed page size", async () => {
+    const res = await request(app).get("/api/products?limit=1000");
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("POST /api/products", () => {

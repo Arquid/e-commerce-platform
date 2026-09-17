@@ -32,6 +32,11 @@ export const updateOrderStatusSchema = z.object({
   status: z.enum(["pending", "paid", "shipped", "delivered", "cancelled"]),
 });
 
+export const paginationQuerySchema = z.object({
+  page: z.coerce.number().int().positive("Page must be a positive integer").default(1),
+  limit: z.coerce.number().int().positive().max(100, "Limit cannot exceed 100").default(20),
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().min(1, "Description is required"),

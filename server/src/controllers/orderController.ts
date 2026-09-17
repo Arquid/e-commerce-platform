@@ -4,8 +4,18 @@ import { AuthRequest } from "../middleware/auth";
 import { logAdminAction } from "../utils/auditLog";
 
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
-  const orders = await Order.find({ user: req.userId }).sort({ createdAt: -1 });
-  res.json(orders);
+  const { page, limit } = res.locals.query as { page: number; limit: number };
+  const filter = { user: req.userId };
+
+  const [orders, total] = await Promise.all([
+    Order.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Order.countDocuments(filter),
+  ]);
+
+  res.json({ orders, total, page, pages: Math.ceil(total / limit) });
 }
 
 export const getOrderById = async (req: AuthRequest, res: Response) => {
@@ -15,8 +25,18 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
 }
 
 export const getAllOrders = async (_req: AuthRequest, res: Response) => {
-  const orders = await Order.find().sort({ createdAt: -1 }).populate("user", "name email");
-  res.json(orders);
+  const { page, limit } = res.locals.query as { page: number; limit: number };
+
+  const [orders, total] = await Promise.all([
+    Order.find()
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate("user", "name email"),
+    Order.countDocuments(),
+  ]);
+
+  res.json({ orders, total, page, pages: Math.ceil(total / limit) });
 };
 
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {

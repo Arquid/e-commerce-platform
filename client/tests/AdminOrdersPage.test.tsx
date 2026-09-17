@@ -22,9 +22,9 @@ const mockOrder: AdminOrder = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
-function mockGetAllOrders(data: AdminOrder[] | undefined, isLoading = false) {
+function mockGetAllOrders(orders: AdminOrder[] | undefined, isLoading = false) {
   vi.mocked(ordersApiSlice.useGetAllOrdersQuery).mockReturnValue({
-    data,
+    data: orders && { orders, total: orders.length, page: 1, pages: 1 },
     isLoading,
   } as unknown as ReturnType<typeof ordersApiSlice.useGetAllOrdersQuery>);
 }
@@ -34,6 +34,13 @@ function mockUpdateOrderStatus(trigger: ReturnType<typeof vi.fn>) {
     trigger,
     { isLoading: false },
   ] as unknown as ReturnType<typeof ordersApiSlice.useUpdateOrderStatusMutation>);
+}
+
+function mockGetAllOrdersPaginated(orders: AdminOrder[], page: number, pages: number) {
+  vi.mocked(ordersApiSlice.useGetAllOrdersQuery).mockReturnValue({
+    data: { orders, total: orders.length, page, pages },
+    isLoading: false,
+  } as unknown as ReturnType<typeof ordersApiSlice.useGetAllOrdersQuery>);
 }
 
 describe("AdminOrdersPage", () => {
@@ -93,5 +100,23 @@ describe("AdminOrdersPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Update failed — try again")).toBeInTheDocument();
     });
+  });
+
+  it("renders page number buttons when there is more than one page", () => {
+    mockGetAllOrdersPaginated([mockOrder], 1, 3);
+    mockUpdateOrderStatus(vi.fn());
+
+    render(<AdminOrdersPage />);
+    expect(screen.getByRole("button", { name: "1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "3" })).toBeInTheDocument();
+  });
+
+  it("does not render pagination when there is only one page", () => {
+    mockGetAllOrdersPaginated([mockOrder], 1, 1);
+    mockUpdateOrderStatus(vi.fn());
+
+    render(<AdminOrdersPage />);
+    expect(screen.queryByRole("button", { name: "1" })).not.toBeInTheDocument();
   });
 });

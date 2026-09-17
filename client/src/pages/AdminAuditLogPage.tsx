@@ -37,7 +37,9 @@ export default function AdminAuditLogPage() {
               <div className="min-w-[16rem] flex-1">
                 <p className="text-sm text-slate-900">{describeEntry(entry)}</p>
                 <p className="text-xs text-slate-400">
-                  {typeof entry.admin === "object" ? `${entry.admin.name} · ${entry.admin.email}` : entry.admin}
+                  {entry.admin && typeof entry.admin === "object"
+                    ? `${entry.admin.name} · ${entry.admin.email}`
+                    : entry.admin}
                 </p>
               </div>
               <span className="text-xs text-slate-400">{new Date(entry.createdAt).toLocaleString()}</span>

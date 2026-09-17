@@ -4,7 +4,8 @@ import { AuthRequest } from "../middleware/auth";
 import { logAdminAction } from "../utils/auditLog";
 
 export const getProducts = async (req: Request, res: Response) => {
-  const { category, minPrice, maxPrice, search, page = "1", limit = "12", sort } = req.query;
+  const { category, minPrice, maxPrice, search, sort } = req.query;
+  const { page: pageNum, limit: limitNum } = res.locals.query as { page: number; limit: number };
 
   const filter: Record<string, any> = {};
   if (category) filter.category = category;
@@ -15,8 +16,6 @@ export const getProducts = async (req: Request, res: Response) => {
   }
   if (search) filter.$text = { $search: String(search) };
 
-  const pageNum = Number(page);
-  const limitNum = Number(limit);
   const sortOption = sort === "price_asc" ? { price: 1 } : sort === "price_desc" ? { price: -1 } : { createdAt: -1 };
 
   const [products, total] = await Promise.all([

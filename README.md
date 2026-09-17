@@ -29,7 +29,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Automatic logout when a session token is invalid or expired
 - Stripe Checkout integration with webhook-confirmed payments
 - Abandoned checkouts are automatically cancelled when Stripe's session expires
-- Order history for logged-in users
+- Paginated order history for logged-in users, and a paginated admin order list
 - Route protection for authenticated pages
 - Rate limiting and security headers (Helmet) on the API
 - A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
@@ -166,7 +166,6 @@ This project is a working MVP, not fully production-hardened. Notably:
 
 - JWT is stored in `localStorage`, which is simpler but more XSS-exposed than an httpOnly cookie
 - Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
-- No pagination upper bound on the products API (`?limit=` accepts any value)
 - No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
 
 ## License
