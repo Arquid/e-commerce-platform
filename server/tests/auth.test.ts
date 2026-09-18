@@ -141,4 +141,16 @@ describe("POST /api/auth/logout", () => {
 
     expect((await agent.get("/api/auth/me")).status).toBe(401);
   });
+
+  it("rejects the request when not authenticated, without touching the auth cookie", async () => {
+    // Regression test: SameSite=Lax already stops a forged cross-site
+    // request from carrying the real session cookie, but if this endpoint
+    // didn't require auth, the server would process the logout anyway and
+    // its Set-Cookie response would still clear whatever session the
+    // browser actually has — forcibly logging a victim out from a page
+    // they never authenticated this request with.
+    const res = await request(app).post("/api/auth/logout");
+    expect(res.status).toBe(401);
+    expect(authCookie(res)).toBeUndefined();
+  });
 });
