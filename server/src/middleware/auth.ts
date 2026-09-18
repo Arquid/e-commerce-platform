@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { AUTH_COOKIE_NAME } from "../config/authCookie";
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -7,12 +8,11 @@ export interface AuthRequest extends Request {
 }
 
 export const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const token = req.cookies?.[AUTH_COOKIE_NAME];
+  if (!token) {
     return res.status(401).json({ message: "Not authenticated" });
   }
   try {
-    const token = header.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: string; role: string; };
     req.userId = decoded.id;
     req.userRole = decoded.role;

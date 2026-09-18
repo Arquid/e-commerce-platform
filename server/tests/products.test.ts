@@ -9,7 +9,8 @@ afterEach(clearTestDb);
 afterAll(disconnectTestDb);
 
 async function registerAndLogin(email: string, role: "customer" | "admin" = "customer") {
-  await request(app).post("/api/auth/register").send({
+  const agent = request.agent(app);
+  await agent.post("/api/auth/register").send({
     name: "Product Tester",
     email,
     password: "password123",
@@ -17,8 +18,8 @@ async function registerAndLogin(email: string, role: "customer" | "admin" = "cus
   if (role === "admin") {
     await User.updateOne({ email }, { role: "admin" });
   }
-  const loginRes = await request(app).post("/api/auth/login").send({ email, password: "password123" });
-  return loginRes.body.token as string;
+  await agent.post("/api/auth/login").send({ email, password: "password123" });
+  return agent;
 }
 
 const validProduct = {
@@ -56,29 +57,20 @@ describe("POST /api/products", () => {
   });
 
   it("rejects the request for a non-admin user", async () => {
-    const token = await registerAndLogin("customer@example.com", "customer");
-    const res = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${token}`)
-      .send(validProduct);
+    const agent = await registerAndLogin("customer@example.com", "customer");
+    const res = await agent.post("/api/products").send(validProduct);
     expect(res.status).toBe(403);
   });
 
   it("rejects invalid product data for an admin user", async () => {
-    const token = await registerAndLogin("admin@example.com", "admin");
-    const res = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ name: "", price: -5, imageUrl: "not-a-url" });
+    const agent = await registerAndLogin("admin@example.com", "admin");
+    const res = await agent.post("/api/products").send({ name: "", price: -5, imageUrl: "not-a-url" });
     expect(res.status).toBe(400);
   });
 
   it("creates a product for an admin user with valid data", async () => {
-    const token = await registerAndLogin("admin2@example.com", "admin");
-    const res = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${token}`)
-      .send(validProduct);
+    const agent = await registerAndLogin("admin2@example.com", "admin");
+    const res = await agent.post("/api/products").send(validProduct);
 
     expect(res.status).toBe(201);
     expect(res.body.name).toBe(validProduct.name);
@@ -95,31 +87,22 @@ describe("DELETE /api/products/:id", () => {
   });
 
   it("rejects the request for a non-admin user", async () => {
-    const token = await registerAndLogin("customer2@example.com", "customer");
-    const res = await request(app)
-      .delete("/api/products/000000000000000000000000")
-      .set("Authorization", `Bearer ${token}`);
+    const agent = await registerAndLogin("customer2@example.com", "customer");
+    const res = await agent.delete("/api/products/000000000000000000000000");
     expect(res.status).toBe(403);
   });
 
   it("returns 404 for a non-existent product", async () => {
-    const token = await registerAndLogin("admin3@example.com", "admin");
-    const res = await request(app)
-      .delete("/api/products/000000000000000000000000")
-      .set("Authorization", `Bearer ${token}`);
+    const agent = await registerAndLogin("admin3@example.com", "admin");
+    const res = await agent.delete("/api/products/000000000000000000000000");
     expect(res.status).toBe(404);
   });
 
   it("deletes an existing product for an admin user", async () => {
-    const token = await registerAndLogin("admin4@example.com", "admin");
-    const created = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${token}`)
-      .send(validProduct);
+    const agent = await registerAndLogin("admin4@example.com", "admin");
+    const created = await agent.post("/api/products").send(validProduct);
 
-    const res = await request(app)
-      .delete(`/api/products/${created.body._id}`)
-      .set("Authorization", `Bearer ${token}`);
+    const res = await agent.delete(`/api/products/${created.body._id}`);
     expect(res.status).toBe(200);
 
     const list = await request(app).get("/api/products");

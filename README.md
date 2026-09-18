@@ -25,7 +25,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Product detail page with stock status
 - Shopping cart (persisted in `localStorage`) with quantity controls
 - Shipping address form collected at checkout
-- User registration and login (JWT-based), with request validation on the API
+- User registration and login (JWT-based) with request validation on the API — the token itself lives only in an httpOnly cookie, never in localStorage or anywhere client-side JavaScript can read it, so an XSS payload can't steal it
 - Automatic logout when a session token is invalid or expired
 - Stripe Checkout integration with webhook-confirmed payments
 - Abandoned checkouts are automatically cancelled when Stripe's session expires
@@ -164,12 +164,12 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 - The server fails fast with a clear error at startup if a required environment variable (`MONGO_URI`, `JWT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CLIENT_URL`) is missing, instead of booting and only failing on the first request that needs it.
 - If you deploy behind a reverse proxy (Render, Railway, Heroku, nginx, etc. — true for most hosting platforms), set `TRUST_PROXY=1` in `server/.env`. Without it, `express-rate-limit` can't reliably tell users apart by IP once requests arrive via a proxy's `X-Forwarded-For` header. Leave it unset for local development — blindly trusting that header when there's no proxy in front would let a client spoof its own IP and dodge rate limiting.
+- The auth cookie is set with `SameSite=Lax`, which works for the common case of the frontend and API sharing a registrable domain (e.g. `app.example.com` and `api.example.com`, or same-site different ports as in local dev). If you deploy them on genuinely separate domains, the cookie won't be sent cross-site — that setup isn't supported out of the box.
 
 ## Known limitations
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- JWT is stored in `localStorage`, which is simpler but more XSS-exposed than an httpOnly cookie
 - Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
 - No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
 

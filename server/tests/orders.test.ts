@@ -11,7 +11,8 @@ afterEach(clearTestDb);
 afterAll(disconnectTestDb);
 
 async function registerAndLogin(email: string, role: "customer" | "admin" = "customer") {
-  await request(app).post("/api/auth/register").send({
+  const agent = request.agent(app);
+  await agent.post("/api/auth/register").send({
     name: "Order Tester",
     email,
     password: "password123",
@@ -19,8 +20,8 @@ async function registerAndLogin(email: string, role: "customer" | "admin" = "cus
   if (role === "admin") {
     await User.updateOne({ email }, { role: "admin" });
   }
-  const res = await request(app).post("/api/auth/login").send({ email, password: "password123" });
-  return res.body as { token: string; user: { id: string } };
+  const res = await agent.post("/api/auth/login").send({ email, password: "password123" });
+  return { agent, user: res.body.user as { id: string } };
 }
 
 type OrderStatus = "pending" | "paid" | "shipped" | "delivered" | "cancelled";
@@ -56,7 +57,7 @@ describe("GET /api/orders", () => {
     await createOrderFor(alice.user.id);
     await createOrderFor(bob.user.id);
 
-    const res = await request(app).get("/api/orders").set("Authorization", `Bearer ${alice.token}`);
+    const res = await alice.agent.get("/api/orders");
     expect(res.status).toBe(200);
     expect(res.body.orders).toHaveLength(1);
     expect(res.body.total).toBe(1);
@@ -68,17 +69,13 @@ describe("GET /api/orders", () => {
     await createOrderFor(alice.user.id);
     await createOrderFor(alice.user.id);
 
-    const res = await request(app)
-      .get("/api/orders?page=1&limit=2")
-      .set("Authorization", `Bearer ${alice.token}`);
+    const res = await alice.agent.get("/api/orders?page=1&limit=2");
     expect(res.status).toBe(200);
     expect(res.body.orders).toHaveLength(2);
     expect(res.body.total).toBe(3);
     expect(res.body.pages).toBe(2);
 
-    const invalid = await request(app)
-      .get("/api/orders?page=not-a-number")
-      .set("Authorization", `Bearer ${alice.token}`);
+    const invalid = await alice.agent.get("/api/orders?page=not-a-number");
     expect(invalid.status).toBe(400);
   });
 });
@@ -89,9 +86,7 @@ describe("GET /api/orders/:id", () => {
     const bob = await registerAndLogin("bob2@example.com");
     const order = await createOrderFor(bob.user.id);
 
-    const res = await request(app)
-      .get(`/api/orders/${order.id}`)
-      .set("Authorization", `Bearer ${alice.token}`);
+    const res = await alice.agent.get(`/api/orders/${order.id}`);
     expect(res.status).toBe(404);
   });
 });
@@ -99,7 +94,7 @@ describe("GET /api/orders/:id", () => {
 describe("GET /api/orders/all", () => {
   it("rejects a non-admin user", async () => {
     const alice = await registerAndLogin("alice3@example.com");
-    const res = await request(app).get("/api/orders/all").set("Authorization", `Bearer ${alice.token}`);
+    const res = await alice.agent.get("/api/orders/all");
     expect(res.status).toBe(403);
   });
 
@@ -109,7 +104,7 @@ describe("GET /api/orders/all", () => {
     await createOrderFor(alice.user.id);
     await createOrderFor(admin.user.id);
 
-    const res = await request(app).get("/api/orders/all").set("Authorization", `Bearer ${admin.token}`);
+    const res = await admin.agent.get("/api/orders/all");
     expect(res.status).toBe(200);
     expect(res.body.orders).toHaveLength(2);
     expect(res.body.total).toBe(2);
@@ -121,10 +116,7 @@ describe("PATCH /api/orders/:id/status", () => {
     const alice = await registerAndLogin("alice5@example.com");
     const order = await createOrderFor(alice.user.id);
 
-    const res = await request(app)
-      .patch(`/api/orders/${order.id}/status`)
-      .set("Authorization", `Bearer ${alice.token}`)
-      .send({ status: "shipped" });
+    const res = await alice.agent.patch(`/api/orders/${order.id}/status`).send({ status: "shipped" });
     expect(res.status).toBe(403);
   });
 
@@ -133,9 +125,8 @@ describe("PATCH /api/orders/:id/status", () => {
     const admin = await registerAndLogin("admin6@example.com", "admin");
     const order = await createOrderFor(alice.user.id);
 
-    const res = await request(app)
+    const res = await admin.agent
       .patch(`/api/orders/${order.id}/status`)
-      .set("Authorization", `Bearer ${admin.token}`)
       .send({ status: "not-a-real-status" });
     expect(res.status).toBe(400);
   });
@@ -145,10 +136,7 @@ describe("PATCH /api/orders/:id/status", () => {
     const admin = await registerAndLogin("admin7@example.com", "admin");
     const order = await createOrderFor(alice.user.id);
 
-    const res = await request(app)
-      .patch(`/api/orders/${order.id}/status`)
-      .set("Authorization", `Bearer ${admin.token}`)
-      .send({ status: "shipped" });
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "shipped" });
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("shipped");

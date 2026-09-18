@@ -29,17 +29,18 @@ afterEach(clearTestDb);
 afterAll(disconnectTestDb);
 
 async function registerAndLogin(email: string) {
-  await request(app).post("/api/auth/register").send({
+  const agent = request.agent(app);
+  await agent.post("/api/auth/register").send({
     name: "Checkout Tester",
     email,
     password: "password123",
   });
-  const loginRes = await request(app).post("/api/auth/login").send({ email, password: "password123" });
-  return loginRes.body.token as string;
+  await agent.post("/api/auth/login").send({ email, password: "password123" });
+  return agent;
 }
 
 async function createPendingOrder(email: string) {
-  const token = await registerAndLogin(email);
+  const agent = await registerAndLogin(email);
   const product = await Product.create({
     name: "Webhook Test Product",
     description: "For webhook testing",
@@ -49,13 +50,10 @@ async function createPendingOrder(email: string) {
     stock: 20,
   });
 
-  const checkoutRes = await request(app)
-    .post("/api/payments/create-checkout-session")
-    .set("Authorization", `Bearer ${token}`)
-    .send({
-      items: [{ productId: product.id, quantity: 1 }],
-      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
-    });
+  const checkoutRes = await agent.post("/api/payments/create-checkout-session").send({
+    items: [{ productId: product.id, quantity: 1 }],
+    shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+  });
 
   if (checkoutRes.status !== 200) {
     throw new Error(
@@ -77,7 +75,7 @@ describe("POST /api/payments/create-checkout-session", () => {
   });
 
   it("creates a pending order and returns the Stripe checkout URL", async () => {
-    const token = await registerAndLogin("checkout@example.com");
+    const agent = await registerAndLogin("checkout@example.com");
     const product = await Product.create({
       name: "Test Product",
       description: "For checkout testing",
@@ -87,13 +85,10 @@ describe("POST /api/payments/create-checkout-session", () => {
       stock: 20,
     });
 
-    const res = await request(app)
-      .post("/api/payments/create-checkout-session")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        items: [{ productId: product.id, quantity: 2 }],
-        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
-      });
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: product.id, quantity: 2 }],
+      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.url).toBe("https://checkout.stripe.com/test-session");
@@ -106,31 +101,25 @@ describe("POST /api/payments/create-checkout-session", () => {
   });
 
   it("rejects an empty items array", async () => {
-    const token = await registerAndLogin("empty-items@example.com");
-    const res = await request(app)
-      .post("/api/payments/create-checkout-session")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        items: [],
-        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
-      });
+    const agent = await registerAndLogin("empty-items@example.com");
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [],
+      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+    });
     expect(res.status).toBe(400);
   });
 
   it("rejects the request when a product does not exist", async () => {
-    const token = await registerAndLogin("missing-product@example.com");
-    const res = await request(app)
-      .post("/api/payments/create-checkout-session")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        items: [{ productId: "000000000000000000000000", quantity: 1 }],
-        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
-      });
+    const agent = await registerAndLogin("missing-product@example.com");
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: "000000000000000000000000", quantity: 1 }],
+      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+    });
     expect(res.status).toBe(400);
   });
 
   it("uses the product's real price from the database, ignoring any price sent by the client", async () => {
-    const token = await registerAndLogin("price-tamper@example.com");
+    const agent = await registerAndLogin("price-tamper@example.com");
     const product = await Product.create({
       name: "Expensive Watch",
       description: "For price-tampering testing",
@@ -140,9 +129,8 @@ describe("POST /api/payments/create-checkout-session", () => {
       stock: 5,
     });
 
-    const res = await request(app)
+    const res = await agent
       .post("/api/payments/create-checkout-session")
-      .set("Authorization", `Bearer ${token}`)
       // A malicious client could still add extra fields like `price` to the
       // JSON body — Zod strips unknown keys, and the controller never reads
       // them anyway, but this proves the end-to-end result is unaffected.
@@ -169,7 +157,7 @@ describe("POST /api/payments/create-checkout-session", () => {
   });
 
   it("rejects the request when the requested quantity exceeds available stock", async () => {
-    const token = await registerAndLogin("out-of-stock@example.com");
+    const agent = await registerAndLogin("out-of-stock@example.com");
     const product = await Product.create({
       name: "Limited Edition Sneakers",
       description: "Only a few left",
@@ -179,13 +167,10 @@ describe("POST /api/payments/create-checkout-session", () => {
       stock: 2,
     });
 
-    const res = await request(app)
-      .post("/api/payments/create-checkout-session")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        items: [{ productId: product.id, quantity: 3 }],
-        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
-      });
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: product.id, quantity: 3 }],
+      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+    });
 
     expect(res.status).toBe(400);
     expect(await Order.countDocuments()).toBe(0);

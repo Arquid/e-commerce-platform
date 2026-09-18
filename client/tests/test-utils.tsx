@@ -5,9 +5,9 @@ import { MemoryRouter } from "react-router-dom";
 import { configureStore } from "@reduxjs/toolkit";
 import { api } from "../src/features/api/apiSlice";
 import cartReducer from "../src/features/cart/cartSlice";
-import authReducer from "../src/features/auth/authSlice";
+import authReducer, { type AuthState } from "../src/features/auth/authSlice";
 
-function createTestStore() {
+function createTestStore(preloadedState?: { auth?: Partial<AuthState> }) {
   return configureStore({
     reducer: {
       [api.reducerPath]: api.reducer,
@@ -15,11 +15,15 @@ function createTestStore() {
       auth: authReducer,
     },
     middleware: (getDefault) => getDefault().concat(api.middleware),
+    preloadedState: preloadedState?.auth ? { auth: preloadedState.auth as AuthState } : undefined,
   });
 }
 
-export function renderWithProviders(ui: ReactElement, { route = "/" }: { route?: string } = {}) {
-  const store = createTestStore();
+export function renderWithProviders(
+  ui: ReactElement,
+  { route = "/", preloadedState }: { route?: string; preloadedState?: { auth?: Partial<AuthState> } } = {}
+) {
+  const store = createTestStore(preloadedState);
 
   function Wrapper({ children }: { children: ReactNode }) {
     return (

@@ -2,13 +2,25 @@ import { Link } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
 import type { RootState } from "../app/store";
 import { logOut } from "../features/auth/authSlice";
+import { useLogoutMutation } from "../features/auth/authApiSlice";
 
 export default function Navbar() {
   const cartItems = useSelector((state: RootState) => state.cart.items);
   const user = useSelector((state: RootState) => state.auth.user);
   const dispatch = useDispatch();
+  const [logout] = useLogoutMutation();
 
   const itemCount = cartItems.reduce((sum, i) => sum + i.quantity, 0);
+
+  const handleLogout = async () => {
+    try {
+      await logout().unwrap();
+    } catch {
+      // Clear local state below regardless — the user should end up logged
+      // out client-side even if the request to clear the cookie failed.
+    }
+    dispatch(logOut());
+  };
 
   return (
     <nav className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200">
@@ -44,10 +56,7 @@ export default function Navbar() {
           </Link>
 
           {user ? (
-            <button
-              onClick={() => dispatch(logOut())}
-              className="hover:text-slate-900 transition-colors"
-            >
+            <button onClick={handleLogout} className="hover:text-slate-900 transition-colors">
               Log out
             </button>
           ) : (

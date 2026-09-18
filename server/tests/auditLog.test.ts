@@ -25,7 +25,8 @@ afterEach(clearTestDb);
 afterAll(disconnectTestDb);
 
 async function registerAndLogin(email: string, role: "customer" | "admin" = "customer") {
-  await request(app).post("/api/auth/register").send({
+  const agent = request.agent(app);
+  await agent.post("/api/auth/register").send({
     name: "Audit Log Tester",
     email,
     password: "password123",
@@ -33,8 +34,8 @@ async function registerAndLogin(email: string, role: "customer" | "admin" = "cus
   if (role === "admin") {
     await User.updateOne({ email }, { role: "admin" });
   }
-  const res = await request(app).post("/api/auth/login").send({ email, password: "password123" });
-  return res.body as { token: string; user: { id: string } };
+  const res = await agent.post("/api/auth/login").send({ email, password: "password123" });
+  return { agent, user: res.body.user as { id: string } };
 }
 
 const validProduct = {
@@ -49,10 +50,7 @@ const validProduct = {
 describe("Admin action audit logging", () => {
   it("logs an entry when an admin creates a product", async () => {
     const admin = await registerAndLogin("audit-create@example.com", "admin");
-    const res = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${admin.token}`)
-      .send(validProduct);
+    const res = await admin.agent.post("/api/products").send(validProduct);
     expect(res.status).toBe(201);
 
     const logs = await AuditLog.find();
@@ -65,14 +63,9 @@ describe("Admin action audit logging", () => {
 
   it("logs an entry when an admin deletes a product", async () => {
     const admin = await registerAndLogin("audit-delete@example.com", "admin");
-    const created = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${admin.token}`)
-      .send(validProduct);
+    const created = await admin.agent.post("/api/products").send(validProduct);
 
-    await request(app)
-      .delete(`/api/products/${created.body._id}`)
-      .set("Authorization", `Bearer ${admin.token}`);
+    await admin.agent.delete(`/api/products/${created.body._id}`);
 
     const logs = await AuditLog.find({ action: "product.delete" });
     expect(logs).toHaveLength(1);
@@ -83,29 +76,18 @@ describe("Admin action audit logging", () => {
     const customer = await registerAndLogin("audit-order-customer@example.com");
     const admin = await registerAndLogin("audit-order-admin@example.com", "admin");
 
-    const productRes = await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${admin.token}`)
-      .send(validProduct);
+    const productRes = await admin.agent.post("/api/products").send(validProduct);
 
-    const checkoutRes = await request(app)
-      .post("/api/payments/create-checkout-session")
-      .set("Authorization", `Bearer ${customer.token}`)
-      .send({
-        items: [{ productId: productRes.body._id, quantity: 1 }],
-        shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
-      });
+    const checkoutRes = await customer.agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: productRes.body._id, quantity: 1 }],
+      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+    });
     expect(checkoutRes.status).toBe(200);
 
-    const ordersRes = await request(app)
-      .get("/api/orders/all")
-      .set("Authorization", `Bearer ${admin.token}`);
+    const ordersRes = await admin.agent.get("/api/orders/all");
     const orderId = ordersRes.body.orders[0]._id as string;
 
-    const updateRes = await request(app)
-      .patch(`/api/orders/${orderId}/status`)
-      .set("Authorization", `Bearer ${admin.token}`)
-      .send({ status: "shipped" });
+    const updateRes = await admin.agent.patch(`/api/orders/${orderId}/status`).send({ status: "shipped" });
     expect(updateRes.status).toBe(200);
 
     const logs = await AuditLog.find({ action: "order.status_update" });
@@ -123,22 +105,15 @@ describe("GET /api/admin/audit-logs", () => {
 
   it("rejects a non-admin user", async () => {
     const customer = await registerAndLogin("audit-list-customer@example.com");
-    const res = await request(app)
-      .get("/api/admin/audit-logs")
-      .set("Authorization", `Bearer ${customer.token}`);
+    const res = await customer.agent.get("/api/admin/audit-logs");
     expect(res.status).toBe(403);
   });
 
   it("returns logged actions with the admin's name and email populated", async () => {
     const admin = await registerAndLogin("audit-list-admin@example.com", "admin");
-    await request(app)
-      .post("/api/products")
-      .set("Authorization", `Bearer ${admin.token}`)
-      .send(validProduct);
+    await admin.agent.post("/api/products").send(validProduct);
 
-    const res = await request(app)
-      .get("/api/admin/audit-logs")
-      .set("Authorization", `Bearer ${admin.token}`);
+    const res = await admin.agent.get("/api/admin/audit-logs");
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
