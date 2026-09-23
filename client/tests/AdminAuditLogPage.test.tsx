@@ -68,4 +68,19 @@ describe("AdminAuditLogPage", () => {
     render(<AdminAuditLogPage />);
     expect(screen.getByText("Changed order #123456 status from pending to shipped")).toBeInTheDocument();
   });
+
+  it("describes a user role update entry", () => {
+    const roleEntry: AuditLogEntry = {
+      _id: "log3",
+      admin: { _id: "u1", name: "Admin Example", email: "admin@example.com" },
+      action: "user.role_update",
+      targetType: "User",
+      targetId: "user123456",
+      details: { email: "alice@example.com", from: "customer", to: "admin" },
+      createdAt: "2026-01-03T00:00:00.000Z",
+    };
+    mockGetAuditLogs([roleEntry], false);
+    render(<AdminAuditLogPage />);
+    expect(screen.getByText("Changed alice@example.com's role from customer to admin")).toBeInTheDocument();
+  });
 });

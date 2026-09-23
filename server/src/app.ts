@@ -12,6 +12,7 @@ import productRoutes from "./routes/productRoutes";
 import orderRoutes from "./routes/orderRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import auditLogRoutes from "./routes/auditLogRoutes";
+import userRoutes from "./routes/userRoutes";
 
 import { notFound, errorHandler } from "./middleware/errorHandler";
 import { parseTrustProxy } from "./config/trustProxy";
@@ -54,6 +55,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin/audit-logs", auditLogRoutes);
+app.use("/api/users", userRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

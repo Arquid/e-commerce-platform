@@ -10,6 +10,8 @@ function describeEntry(entry: AuditLogEntry): string {
       return `Deleted product "${details.name ?? entry.targetId}"`;
     case "order.status_update":
       return `Changed order #${entry.targetId?.slice(-6)} status from ${details.from} to ${details.to}`;
+    case "user.role_update":
+      return `Changed ${details.email ?? entry.targetId}'s role from ${details.from} to ${details.to}`;
     default:
       return `${entry.action} on ${entry.targetType} ${entry.targetId ?? ""}`;
   }

@@ -37,6 +37,10 @@ export const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100, "Limit cannot exceed 100").default(20),
 });
 
+export const updateUserRoleSchema = z.object({
+  role: z.enum(["customer", "admin"]),
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().min(1, "Description is required"),

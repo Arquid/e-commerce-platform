@@ -38,6 +38,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
 - Audit log of admin actions (product created/deleted, order status changes) with who did what and when, at `/admin/audit-log`
 - Stock enforcement: checkout is rejected if the requested quantity exceeds a product's available stock, and stock is decremented atomically once payment is confirmed — a duplicate webhook delivery never double-decrements it
+- Admin-only user management UI (list every user, promote/demote between `customer` and `admin`) at `/admin/users` — no direct database access needed to grant the admin role; an admin can never change their own role, which guarantees at least one admin always remains
 
 ## Project structure
 
@@ -170,7 +171,6 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- Promoting a user to `admin` still requires direct database access — there's no self-service or invite-based way to grant the role
 - No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
 
 ## License
