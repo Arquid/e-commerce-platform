@@ -4,6 +4,7 @@ import app from "../src/app";
 import { stripe } from "../src/config/stripe";
 import Product from "../src/models/Product";
 import Order from "../src/models/Order";
+import AuditLog from "../src/models/AuditLog";
 import { connectTestDb, disconnectTestDb, clearTestDb } from "./testDb";
 
 // vi.mock calls are hoisted above imports by Vitest, so this replaces the
@@ -281,6 +282,63 @@ describe("POST /api/payments/webhook", () => {
     expect(res.status).toBe(200);
     const order = await Order.findById(orderId);
     expect(order?.status).toBe("paid");
+  });
+
+  it("flags — once — a payment that arrives for an order cancelled before it was paid", async () => {
+    // Regression test: this payment used to be dropped silently, leaving
+    // the customer charged for a cancelled order with no trace anywhere.
+    const orderId = await createPendingOrder("webhook-paid-after-cancel@example.com");
+    await Order.findByIdAndUpdate(orderId, { status: "cancelled" });
+    const order = await Order.findById(orderId);
+    const stockBefore = (await Product.findById(order!.items[0].product))!.stock;
+
+    const completedEvent = {
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_test_123", amount_total: 1000, metadata: { orderId } } },
+    } as any;
+    const deliver = () =>
+      request(app)
+        .post("/api/payments/webhook")
+        .set("Content-Type", "application/json")
+        .set("stripe-signature", "test-signature")
+        .send(Buffer.from("{}"));
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce(completedEvent);
+    expect((await deliver()).status).toBe(200);
+    // Stripe may redeliver the same event — that must not add a second entry.
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce(completedEvent);
+    await deliver();
+
+    const flags = await AuditLog.find({ action: "payment.received_for_cancelled_order" });
+    expect(flags).toHaveLength(1);
+    expect(flags[0].targetId).toBe(orderId);
+    expect(flags[0].admin).toBeUndefined();
+
+    const after = await Order.findById(orderId);
+    expect(after?.status).toBe("cancelled");
+    expect((await Product.findById(order!.items[0].product))!.stock).toBe(stockBefore);
+  });
+
+  it("does not flag a redelivered payment for an order that was paid and cancelled afterwards", async () => {
+    const orderId = await createPendingOrder("webhook-paid-then-cancelled@example.com");
+    const completedEvent = {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId } } },
+    } as any;
+    const deliver = () =>
+      request(app)
+        .post("/api/payments/webhook")
+        .set("Content-Type", "application/json")
+        .set("stripe-signature", "test-signature")
+        .send(Buffer.from("{}"));
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce(completedEvent);
+    await deliver();
+    await Order.findByIdAndUpdate(orderId, { status: "cancelled" });
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce(completedEvent);
+    await deliver();
+
+    expect(await AuditLog.countDocuments({ action: "payment.received_for_cancelled_order" })).toBe(0);
   });
 
   it("rejects the request when signature verification fails", async () => {

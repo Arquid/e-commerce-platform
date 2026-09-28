@@ -14,6 +14,7 @@ export interface IOrder extends Document {
   shippingAddress: { line1: string; city: string; postalCode: string; country: string };
   status: "pending" | "paid" | "shipped" | "delivered" | "cancelled";
   stripeSessionId?: string;
+  paidAt?: Date;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -37,6 +38,10 @@ const orderSchema = new Schema<IOrder>(
       default: "pending",
     },
     stripeSessionId: String,
+    // Set only when Stripe confirms payment — lets the webhook tell "a
+    // cancelled order that was never paid just received money" apart from a
+    // redelivered event for an order that was paid and cancelled later.
+    paidAt: Date,
   },
   { timestamps: true }
 );

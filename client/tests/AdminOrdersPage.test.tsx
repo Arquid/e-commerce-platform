@@ -102,6 +102,46 @@ describe("AdminOrdersPage", () => {
     });
   });
 
+  it("only offers the status changes the server allows", () => {
+    mockGetAllOrders([mockOrder], false);
+    mockUpdateOrderStatus(vi.fn());
+
+    render(<AdminOrdersPage />);
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual(["paid", "shipped", "cancelled"]);
+  });
+
+  it("never offers 'paid' for a pending order — only a real Stripe payment can set it", () => {
+    mockGetAllOrders([{ ...mockOrder, status: "pending" }], false);
+    mockUpdateOrderStatus(vi.fn());
+
+    render(<AdminOrdersPage />);
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual(["pending", "cancelled"]);
+  });
+
+  it("locks the status of a finished order", () => {
+    mockGetAllOrders([{ ...mockOrder, status: "delivered" }], false);
+    mockUpdateOrderStatus(vi.fn());
+
+    render(<AdminOrdersPage />);
+    expect(screen.getByRole("combobox")).toBeDisabled();
+  });
+
+  it("shows the server's explanation when a change is refused", async () => {
+    const message = "The customer has already paid for this order.";
+    const trigger = vi.fn().mockReturnValue({ unwrap: () => Promise.reject({ status: 409, data: { message } }) });
+    mockGetAllOrders([{ ...mockOrder, status: "pending" }], false);
+    mockUpdateOrderStatus(trigger);
+
+    render(<AdminOrdersPage />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "cancelled" } });
+
+    await waitFor(() => {
+      expect(screen.getByText(message)).toBeInTheDocument();
+    });
+  });
+
   it("renders page number buttons when there is more than one page", () => {
     mockGetAllOrdersPaginated([mockOrder], 1, 3);
     mockUpdateOrderStatus(vi.fn());

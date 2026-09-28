@@ -12,6 +12,8 @@ function describeEntry(entry: AuditLogEntry): string {
       return `Changed order #${entry.targetId?.slice(-6)} status from ${details.from} to ${details.to}`;
     case "user.role_update":
       return `Changed ${details.email ?? entry.targetId}'s role from ${details.from} to ${details.to}`;
+    case "payment.received_for_cancelled_order":
+      return `⚠ Payment received for cancelled order #${entry.targetId?.slice(-6)} — the customer was charged; refund it in Stripe`;
     default:
       return `${entry.action} on ${entry.targetType} ${entry.targetId ?? ""}`;
   }
@@ -41,7 +43,7 @@ export default function AdminAuditLogPage() {
                 <p className="text-xs text-slate-400">
                   {entry.admin && typeof entry.admin === "object"
                     ? `${entry.admin.name} · ${entry.admin.email}`
-                    : entry.admin}
+                    : entry.admin || "System"}
                 </p>
               </div>
               <span className="text-xs text-slate-400">{new Date(entry.createdAt).toLocaleString()}</span>

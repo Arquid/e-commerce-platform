@@ -1,13 +1,30 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import request from "supertest";
 import app from "../src/app";
+import { stripe } from "../src/config/stripe";
 import User from "../src/models/User";
 import Order from "../src/models/Order";
 import Product from "../src/models/Product";
 import { connectTestDb, disconnectTestDb, clearTestDb } from "./testDb";
 
+// Hoisted above the imports by Vitest, so the controller gets this mock
+// instead of a real Stripe client.
+vi.mock("../src/config/stripe", () => ({
+  stripe: {
+    checkout: {
+      sessions: {
+        expire: vi.fn(),
+        retrieve: vi.fn(),
+      },
+    },
+  },
+}));
+
 beforeAll(connectTestDb);
-afterEach(clearTestDb);
+afterEach(async () => {
+  await clearTestDb();
+  vi.clearAllMocks();
+});
 afterAll(disconnectTestDb);
 
 async function registerAndLogin(email: string, role: "customer" | "admin" = "customer") {
@@ -26,7 +43,7 @@ async function registerAndLogin(email: string, role: "customer" | "admin" = "cus
 
 type OrderStatus = "pending" | "paid" | "shipped" | "delivered" | "cancelled";
 
-async function createOrderFor(userId: string, status: OrderStatus = "pending") {
+async function createOrderFor(userId: string, status: OrderStatus = "pending", stripeSessionId?: string) {
   const product = await Product.create({
     name: "Order Test Product",
     description: "For order testing",
@@ -42,6 +59,7 @@ async function createOrderFor(userId: string, status: OrderStatus = "pending") {
     totalAmount: product.price,
     shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
     status,
+    stripeSessionId,
   });
 }
 
@@ -131,14 +149,101 @@ describe("PATCH /api/orders/:id/status", () => {
     expect(res.status).toBe(400);
   });
 
-  it("updates the order status for an admin user", async () => {
+  it("ships a paid order", async () => {
     const alice = await registerAndLogin("alice7@example.com");
     const admin = await registerAndLogin("admin7@example.com", "admin");
-    const order = await createOrderFor(alice.user.id);
+    const order = await createOrderFor(alice.user.id, "paid");
 
     const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "shipped" });
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("shipped");
+  });
+
+  it("does not let an admin mark an order as paid by hand", async () => {
+    // Only the Stripe webhook may set "paid" — it's also where stock is
+    // decremented, and a manual "paid" would make it ignore the real payment.
+    const alice = await registerAndLogin("alice8@example.com");
+    const admin = await registerAndLogin("admin8@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "pending");
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "paid" });
+
+    expect(res.status).toBe(400);
+    expect((await Order.findById(order.id))?.status).toBe("pending");
+  });
+
+  it("does not let an order skip payment and go straight to shipped", async () => {
+    const alice = await registerAndLogin("alice9@example.com");
+    const admin = await registerAndLogin("admin9@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "pending");
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "shipped" });
+    expect(res.status).toBe(400);
+  });
+
+  it("does not let a finished order be changed", async () => {
+    const alice = await registerAndLogin("alice10@example.com");
+    const admin = await registerAndLogin("admin10@example.com", "admin");
+    const delivered = await createOrderFor(alice.user.id, "delivered");
+    const cancelled = await createOrderFor(alice.user.id, "cancelled");
+
+    expect((await admin.agent.patch(`/api/orders/${delivered.id}/status`).send({ status: "shipped" })).status).toBe(400);
+    expect((await admin.agent.patch(`/api/orders/${cancelled.id}/status`).send({ status: "paid" })).status).toBe(400);
+  });
+
+  it("closes the Stripe checkout session before cancelling a pending order", async () => {
+    const alice = await registerAndLogin("alice11@example.com");
+    const admin = await registerAndLogin("admin11@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "pending", "cs_test_open");
+    vi.mocked(stripe.checkout.sessions.expire).mockResolvedValueOnce({} as any);
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "cancelled" });
+
+    expect(res.status).toBe(200);
+    expect(stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_test_open");
+    expect((await Order.findById(order.id))?.status).toBe("cancelled");
+  });
+
+  it("refuses to cancel a pending order the customer has already paid for", async () => {
+    // Regression test: cancelling used to succeed here while the customer's
+    // Stripe payment went through anyway — charged for an order marked
+    // cancelled, with the webhook then ignoring the payment entirely.
+    const alice = await registerAndLogin("alice12@example.com");
+    const admin = await registerAndLogin("admin12@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "pending", "cs_test_paid");
+    vi.mocked(stripe.checkout.sessions.expire).mockRejectedValueOnce(new Error("session is complete"));
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({ status: "complete" } as any);
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "cancelled" });
+
+    expect(res.status).toBe(409);
+    expect((await Order.findById(order.id))?.status).toBe("pending");
+  });
+
+  it("cancels a pending order whose checkout session had already expired", async () => {
+    const alice = await registerAndLogin("alice13@example.com");
+    const admin = await registerAndLogin("admin13@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "pending", "cs_test_expired");
+    vi.mocked(stripe.checkout.sessions.expire).mockRejectedValueOnce(new Error("already expired"));
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({ status: "expired" } as any);
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "cancelled" });
+
+    expect(res.status).toBe(200);
+    expect((await Order.findById(order.id))?.status).toBe("cancelled");
+  });
+
+  it("restores stock when a paid order is cancelled", async () => {
+    const alice = await registerAndLogin("alice14@example.com");
+    const admin = await registerAndLogin("admin14@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "paid");
+    const productId = order.items[0].product;
+    const stockBefore = (await Product.findById(productId))!.stock;
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "cancelled" });
+
+    expect(res.status).toBe(200);
+    expect((await Product.findById(productId))!.stock).toBe(stockBefore + order.items[0].quantity);
   });
 });

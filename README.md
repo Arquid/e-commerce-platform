@@ -34,7 +34,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Rate limiting and security headers (Helmet) on the API
 - A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
 - Admin-only product management UI (list, add, delete) at `/admin/products`
-- Admin-only order management UI (list every order, update its status) at `/admin/orders`
+- Admin-only order management UI (list every order, update its status) at `/admin/orders`. Status changes follow fixed rules: `paid → shipped → delivered`, and pending or paid orders can be cancelled. Only a confirmed Stripe payment can mark an order `paid` — never an admin by hand. Cancelling a pending order first closes its Stripe checkout page (and is refused if the customer has already paid), and cancelling a paid order puts its items back in stock. If a payment ever does arrive for an order cancelled before it was paid, it's recorded in the audit log instead of being dropped silently
 - Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
 - Audit log of admin actions (product created/deleted, order status changes) with who did what and when, at `/admin/audit-log`
 - Stock enforcement: checkout is rejected if the requested quantity exceeds a product's available stock, and stock is decremented atomically once payment is confirmed — a duplicate webhook delivery never double-decrements it
@@ -183,6 +183,7 @@ This project is a working MVP, not fully production-hardened. Notably:
 
 - Some frontend pages have no tests yet (the coverage report shows them at 0%): `LoginPage`, `RegisterPage`, `OrderHistoryPage`, `OrderSuccessPage`, and `ProductDetailPage`
 - No coverage thresholds are enforced — CI reports coverage but won't fail if it drops
+- Cancelling a paid order restores stock but doesn't refund the customer — refunds are done manually in the Stripe dashboard
 
 ## License
 

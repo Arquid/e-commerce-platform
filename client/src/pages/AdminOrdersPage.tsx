@@ -3,7 +3,24 @@ import { useGetAllOrdersQuery, useUpdateOrderStatusMutation } from "../features/
 import type { OrderStatus } from "../features/orders/ordersApiSlice";
 import Pagination from "../components/Pagination";
 
-const statusOptions: OrderStatus[] = ["pending", "paid", "shipped", "delivered", "cancelled"];
+// Mirrors the server's allowed transitions (orderController.ts) so the menu
+// only offers moves that will succeed — the server is what enforces them.
+// "paid" is never offered: only a confirmed Stripe payment can set it.
+const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
+  pending: ["cancelled"],
+  paid: ["shipped", "cancelled"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
+
+function errorMessage(err: unknown): string {
+  if (typeof err === "object" && err !== null && "data" in err) {
+    const data = (err as { data?: { message?: unknown } }).data;
+    if (typeof data?.message === "string") return data.message;
+  }
+  return "Update failed — try again";
+}
 
 const statusStyles: Record<OrderStatus, string> = {
   pending: "bg-amber-50 text-amber-700",
@@ -17,14 +34,14 @@ export default function AdminOrdersPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useGetAllOrdersQuery({ page, limit: 10 });
   const [updateOrderStatus] = useUpdateOrderStatusMutation();
-  const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ orderId: string; message: string } | null>(null);
 
   const handleStatusChange = async (orderId: string, status: OrderStatus) => {
-    setFailedOrderId(null);
+    setFailure(null);
     try {
       await updateOrderStatus({ id: orderId, status }).unwrap();
-    } catch {
-      setFailedOrderId(orderId);
+    } catch (err) {
+      setFailure({ orderId, message: errorMessage(err) });
     }
   };
 
@@ -58,17 +75,18 @@ export default function AdminOrdersPage() {
                 <div className="flex flex-col items-end gap-1">
                   <select
                     value={o.status}
+                    disabled={nextStatuses[o.status].length === 0}
                     onChange={(e) => handleStatusChange(o._id, e.target.value as OrderStatus)}
-                    className={`rounded-full border-0 px-3 py-1 text-xs font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-200 ${statusStyles[o.status]}`}
+                    className={`rounded-full border-0 px-3 py-1 text-xs font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed ${statusStyles[o.status]}`}
                   >
-                    {statusOptions.map((s) => (
+                    {[o.status, ...nextStatuses[o.status]].map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
                     ))}
                   </select>
-                  {failedOrderId === o._id && (
-                    <span className="text-xs text-red-600">Update failed — try again</span>
+                  {failure?.orderId === o._id && (
+                    <span className="max-w-xs text-right text-xs text-red-600">{failure.message}</span>
                   )}
                 </div>
               </div>

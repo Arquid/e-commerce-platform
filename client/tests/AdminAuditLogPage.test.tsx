@@ -69,6 +69,21 @@ describe("AdminAuditLogPage", () => {
     expect(screen.getByText("Changed order #123456 status from pending to shipped")).toBeInTheDocument();
   });
 
+  it("shows a system event recorded without an admin, e.g. a payment for a cancelled order", () => {
+    const systemEntry: AuditLogEntry = {
+      _id: "log4",
+      action: "payment.received_for_cancelled_order",
+      targetType: "Order",
+      targetId: "order654321",
+      details: { stripeSessionId: "cs_test", amountTotal: 1000 },
+      createdAt: "2026-01-04T00:00:00.000Z",
+    };
+    mockGetAuditLogs([systemEntry], false);
+    render(<AdminAuditLogPage />);
+    expect(screen.getByText(/Payment received for cancelled order #654321/)).toBeInTheDocument();
+    expect(screen.getByText("System")).toBeInTheDocument();
+  });
+
   it("describes a user role update entry", () => {
     const roleEntry: AuditLogEntry = {
       _id: "log3",

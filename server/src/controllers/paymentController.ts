@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { stripe } from "../config/stripe";
 import Order from "../models/Order";
 import Product from "../models/Product";
+import AuditLog from "../models/AuditLog";
 import { AuthRequest } from "../middleware/auth";
 
 interface CheckoutItemInput {
@@ -93,7 +94,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
     // second delivery must not decrement stock twice.
     const order = await Order.findOneAndUpdate(
       { _id: session.metadata?.orderId, status: "pending" },
-      { status: "paid" }
+      { status: "paid", paidAt: new Date() }
     );
     if (order) {
       await Promise.all(
@@ -101,6 +102,25 @@ export const handleWebhook = async (req: Request, res: Response) => {
           Product.updateOne({ _id: item.product, stock: { $gte: item.quantity } }, { $inc: { stock: -item.quantity } })
         )
       );
+    } else {
+      // Money arrived for an order that was cancelled before it was ever
+      // paid. Cancelling a pending order expires its Stripe session first,
+      // so this shouldn't happen — but if it does, the customer has been
+      // charged for an order that isn't going to ship, so it must not be
+      // dropped silently. Setting paidAt in the same atomic update makes a
+      // redelivery of this event a no-op instead of a duplicate entry.
+      const flagged = await Order.findOneAndUpdate(
+        { _id: session.metadata?.orderId, status: "cancelled", paidAt: { $exists: false } },
+        { paidAt: new Date() }
+      );
+      if (flagged) {
+        await AuditLog.create({
+          action: "payment.received_for_cancelled_order",
+          targetType: "Order",
+          targetId: flagged.id,
+          details: { stripeSessionId: session.id, amountTotal: session.amount_total },
+        });
+      }
     }
   } else if (event.type === "checkout.session.expired") {
     // The customer left checkout without paying; Stripe sends this ~24h later.

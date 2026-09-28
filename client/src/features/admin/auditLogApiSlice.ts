@@ -2,7 +2,8 @@ import { api } from "../api/apiSlice";
 
 export interface AuditLogEntry {
   _id: string;
-  admin: { _id: string; name: string; email: string } | string;
+  // Absent for system events, e.g. ones recorded by the Stripe webhook.
+  admin?: { _id: string; name: string; email: string } | string | null;
   action: string;
   targetType: string;
   targetId?: string;

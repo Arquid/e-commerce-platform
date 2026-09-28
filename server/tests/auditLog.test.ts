@@ -3,6 +3,7 @@ import request from "supertest";
 import app from "../src/app";
 import User from "../src/models/User";
 import AuditLog from "../src/models/AuditLog";
+import Order from "../src/models/Order";
 import { connectTestDb, disconnectTestDb, clearTestDb } from "./testDb";
 
 // vi.mock calls are hoisted above imports by Vitest, so this replaces the
@@ -58,7 +59,7 @@ describe("Admin action audit logging", () => {
     expect(logs[0].action).toBe("product.create");
     expect(logs[0].targetType).toBe("Product");
     expect(logs[0].targetId).toBe(res.body._id);
-    expect(logs[0].admin.toString()).toBe(admin.user.id);
+    expect(logs[0].admin?.toString()).toBe(admin.user.id);
   });
 
   it("logs an entry when an admin deletes a product", async () => {
@@ -86,6 +87,9 @@ describe("Admin action audit logging", () => {
 
     const ordersRes = await admin.agent.get("/api/orders/all");
     const orderId = ordersRes.body.orders[0]._id as string;
+    // Only a confirmed Stripe payment can move an order to "paid"; simulate
+    // that directly so the admin can ship it.
+    await Order.findByIdAndUpdate(orderId, { status: "paid" });
 
     const updateRes = await admin.agent.patch(`/api/orders/${orderId}/status`).send({ status: "shipped" });
     expect(updateRes.status).toBe(200);
@@ -93,7 +97,7 @@ describe("Admin action audit logging", () => {
     const logs = await AuditLog.find({ action: "order.status_update" });
     expect(logs).toHaveLength(1);
     expect(logs[0].targetId).toBe(orderId);
-    expect(logs[0].details).toEqual({ from: "pending", to: "shipped" });
+    expect(logs[0].details).toEqual({ from: "paid", to: "shipped" });
   });
 });
 
