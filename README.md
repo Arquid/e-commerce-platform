@@ -37,7 +37,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Admin-only order management UI (list every order, update its status) at `/admin/orders`. Status changes follow fixed rules: `paid → shipped → delivered`, and pending or paid orders can be cancelled. Only a confirmed Stripe payment can mark an order `paid` — never an admin by hand. Cancelling a pending order first closes its Stripe checkout page (and is refused if the customer has already paid), and cancelling a paid order puts its items back in stock. If a payment ever does arrive for an order cancelled before it was paid, it's recorded in the audit log instead of being dropped silently
 - Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
 - Audit log of admin actions (product created/deleted, order status changes) with who did what and when, at `/admin/audit-log`
-- Stock enforcement: checkout is rejected if the requested quantity exceeds a product's available stock, and stock is decremented atomically once payment is confirmed — a duplicate webhook delivery never double-decrements it
+- Stock reservation: items are taken out of stock atomically the moment checkout starts — not after payment — so two customers can never both buy the last unit (the second gets a clear "not enough stock" error). If any item in the cart is sold out, nothing is reserved. The reservation is returned exactly once when the order is cancelled or its checkout page expires, and only for units the order actually took, so stock can't be double-counted. The Stripe checkout page expires after ~30 minutes instead of Stripe's 24h default, so an abandoned cart doesn't hold stock for a whole day
 - Admin-only user management UI (list every user, promote/demote between `customer` and `admin`) at `/admin/users` — no direct database access needed to grant the admin role; an admin can never change their own role, which guarantees at least one admin always remains
 
 ## Project structure
@@ -184,6 +184,8 @@ This project is a working MVP, not fully production-hardened. Notably:
 - Some frontend pages have no tests yet (the coverage report shows them at 0%): `LoginPage`, `RegisterPage`, `OrderHistoryPage`, `OrderSuccessPage`, and `ProductDetailPage`
 - No coverage thresholds are enforced — CI reports coverage but won't fail if it drops
 - Cancelling a paid order restores stock but doesn't refund the customer — refunds are done manually in the Stripe dashboard
+- A started checkout holds its items for up to ~30 minutes even if the customer never pays, so a product can briefly show as sold out while someone has it in an unfinished checkout
+- Orders created before stock reservation was introduced don't hold a reservation, so cancelling one of them won't put stock back (the safe side — it can never add units that aren't really there)
 
 ## License
 

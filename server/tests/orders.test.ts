@@ -234,10 +234,11 @@ describe("PATCH /api/orders/:id/status", () => {
     expect((await Order.findById(order.id))?.status).toBe("cancelled");
   });
 
-  it("restores stock when a paid order is cancelled", async () => {
+  it("puts a paid order's stock back when it's cancelled", async () => {
     const alice = await registerAndLogin("alice14@example.com");
     const admin = await registerAndLogin("admin14@example.com", "admin");
     const order = await createOrderFor(alice.user.id, "paid");
+    await Order.updateOne({ _id: order._id }, { stockHeld: true });
     const productId = order.items[0].product;
     const stockBefore = (await Product.findById(productId))!.stock;
 
@@ -245,5 +246,37 @@ describe("PATCH /api/orders/:id/status", () => {
 
     expect(res.status).toBe(200);
     expect((await Product.findById(productId))!.stock).toBe(stockBefore + order.items[0].quantity);
+    expect((await Order.findById(order.id))?.stockHeld).toBe(false);
+  });
+
+  it("puts a pending order's reserved stock back when it's cancelled", async () => {
+    const alice = await registerAndLogin("alice15@example.com");
+    const admin = await registerAndLogin("admin15@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "pending");
+    await Order.updateOne({ _id: order._id }, { stockHeld: true });
+    const productId = order.items[0].product;
+    const stockBefore = (await Product.findById(productId))!.stock;
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "cancelled" });
+
+    expect(res.status).toBe(200);
+    expect((await Product.findById(productId))!.stock).toBe(stockBefore + order.items[0].quantity);
+  });
+
+  it("never puts back stock an order didn't take — no phantom units", async () => {
+    // Regression test: cancelling used to add the order's quantity back to
+    // stock unconditionally. For an order that never took its units (e.g.
+    // one that was oversold), that created stock that didn't physically
+    // exist, which the next customer could then buy.
+    const alice = await registerAndLogin("alice16@example.com");
+    const admin = await registerAndLogin("admin16@example.com", "admin");
+    const order = await createOrderFor(alice.user.id, "paid");
+    const productId = order.items[0].product;
+    const stockBefore = (await Product.findById(productId))!.stock;
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "cancelled" });
+
+    expect(res.status).toBe(200);
+    expect((await Product.findById(productId))!.stock).toBe(stockBefore);
   });
 });

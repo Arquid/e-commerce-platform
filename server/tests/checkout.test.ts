@@ -66,6 +66,27 @@ async function createPendingOrder(email: string) {
   return order!.id as string;
 }
 
+function deliverWebhook() {
+  return request(app)
+    .post("/api/payments/webhook")
+    .set("Content-Type", "application/json")
+    .set("stripe-signature", "test-signature")
+    .send(Buffer.from("{}"));
+}
+
+const shippingAddress = { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" };
+
+async function createProduct(name: string, stock: number) {
+  return Product.create({
+    name,
+    description: "For stock reservation testing",
+    price: 10,
+    category: "electronics",
+    imageUrl: "https://example.com/product.png",
+    stock,
+  });
+}
+
 describe("POST /api/payments/create-checkout-session", () => {
   it("rejects the request when not authenticated", async () => {
     const res = await request(app).post("/api/payments/create-checkout-session").send({
@@ -175,6 +196,73 @@ describe("POST /api/payments/create-checkout-session", () => {
 
     expect(res.status).toBe(400);
     expect(await Order.countDocuments()).toBe(0);
+    expect((await Product.findById(product.id))!.stock).toBe(2);
+  });
+
+  it("reserves stock at checkout, so two customers can't both buy the last unit", async () => {
+    // Regression test: stock used to be checked at checkout but only taken
+    // at payment, so both of these checkouts succeeded, both customers paid,
+    // and one order was oversold with no warning to anyone.
+    const product = await createProduct("Last One", 1);
+    const alice = await registerAndLogin("last-alice@example.com");
+    const bob = await registerAndLogin("last-bob@example.com");
+    const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+
+    expect((await alice.post("/api/payments/create-checkout-session").send(body)).status).toBe(200);
+    const bobRes = await bob.post("/api/payments/create-checkout-session").send(body);
+
+    expect(bobRes.status).toBe(400);
+    expect(bobRes.body.message).toMatch(/Not enough stock for "Last One" \(0 available\)/);
+    expect((await Product.findById(product.id))!.stock).toBe(0);
+    expect(await Order.countDocuments()).toBe(1);
+  });
+
+  it("gives back everything already reserved when a later item in the cart is sold out", async () => {
+    const available = await createProduct("In Stock", 5);
+    const soldOut = await createProduct("Sold Out", 0);
+    const agent = await registerAndLogin("partial@example.com");
+
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [
+        { productId: available.id, quantity: 2 },
+        { productId: soldOut.id, quantity: 1 },
+      ],
+      shippingAddress,
+    });
+
+    expect(res.status).toBe(400);
+    expect((await Product.findById(available.id))!.stock).toBe(5);
+    expect(await Order.countDocuments()).toBe(0);
+  });
+
+  it("gives the reservation back and discards the order if Stripe fails to create the checkout", async () => {
+    const product = await createProduct("Stripe Down", 3);
+    const agent = await registerAndLogin("stripe-down@example.com");
+    vi.mocked(stripe.checkout.sessions.create).mockRejectedValueOnce(new Error("Stripe unavailable"));
+
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: product.id, quantity: 2 }],
+      shippingAddress,
+    });
+
+    expect(res.status).toBe(500);
+    expect((await Product.findById(product.id))!.stock).toBe(3);
+    expect(await Order.countDocuments()).toBe(0);
+  });
+
+  it("makes the checkout page expire after about 30 minutes rather than Stripe's 24h default", async () => {
+    const product = await createProduct("Expiry", 3);
+    const agent = await registerAndLogin("expiry@example.com");
+    const before = Math.floor(Date.now() / 1000);
+
+    await agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: product.id, quantity: 1 }],
+      shippingAddress,
+    });
+
+    const { expires_at } = vi.mocked(stripe.checkout.sessions.create).mock.lastCall![0]!;
+    expect(expires_at! - before).toBeGreaterThanOrEqual(30 * 60);
+    expect(expires_at! - before).toBeLessThanOrEqual(35 * 60);
   });
 });
 
@@ -198,70 +286,39 @@ describe("POST /api/payments/webhook", () => {
     expect(order?.status).toBe("paid");
   });
 
-  it("decrements product stock when payment completes", async () => {
+  it("leaves stock alone when payment completes — it was already reserved at checkout", async () => {
     const orderId = await createPendingOrder("webhook-stock@example.com");
     const order = await Order.findById(orderId);
     const productId = order!.items[0].product;
-    const stockBefore = (await Product.findById(productId))!.stock;
-
-    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce({
-      type: "checkout.session.completed",
-      data: { object: { metadata: { orderId } } },
-    } as any);
-
-    await request(app)
-      .post("/api/payments/webhook")
-      .set("Content-Type", "application/json")
-      .set("stripe-signature", "test-signature")
-      .send(Buffer.from("{}"));
-
-    const stockAfter = (await Product.findById(productId))!.stock;
-    expect(stockAfter).toBe(stockBefore - order!.items[0].quantity);
-  });
-
-  it("does not decrement stock twice when the same completed event is redelivered", async () => {
-    const orderId = await createPendingOrder("webhook-stock-duplicate@example.com");
-    const order = await Order.findById(orderId);
-    const productId = order!.items[0].product;
-    const stockBefore = (await Product.findById(productId))!.stock;
+    // createPendingOrder's product starts at 20; checkout reserved 1.
+    expect((await Product.findById(productId))!.stock).toBe(19);
 
     vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
       type: "checkout.session.completed",
       data: { object: { metadata: { orderId } } },
     } as any);
+    // Delivered twice, as Stripe may do — neither delivery touches stock.
+    await deliverWebhook();
+    await deliverWebhook();
 
-    await request(app)
-      .post("/api/payments/webhook")
-      .set("Content-Type", "application/json")
-      .set("stripe-signature", "test-signature")
-      .send(Buffer.from("{}"));
-    await request(app)
-      .post("/api/payments/webhook")
-      .set("Content-Type", "application/json")
-      .set("stripe-signature", "test-signature")
-      .send(Buffer.from("{}"));
-
-    const stockAfter = (await Product.findById(productId))!.stock;
-    expect(stockAfter).toBe(stockBefore - order!.items[0].quantity);
+    expect((await Product.findById(productId))!.stock).toBe(19);
+    expect((await Order.findById(orderId))?.status).toBe("paid");
   });
 
-  it("marks a pending order as cancelled on checkout.session.expired", async () => {
+  it("cancels an expired checkout's order and puts its reserved stock back — once", async () => {
     const orderId = await createPendingOrder("webhook-expired@example.com");
+    const productId = (await Order.findById(orderId))!.items[0].product;
+    expect((await Product.findById(productId))!.stock).toBe(19);
 
-    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce({
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
       type: "checkout.session.expired",
       data: { object: { metadata: { orderId } } },
     } as any);
+    expect((await deliverWebhook()).status).toBe(200);
+    await deliverWebhook();
 
-    const res = await request(app)
-      .post("/api/payments/webhook")
-      .set("Content-Type", "application/json")
-      .set("stripe-signature", "test-signature")
-      .send(Buffer.from("{}"));
-
-    expect(res.status).toBe(200);
-    const order = await Order.findById(orderId);
-    expect(order?.status).toBe("cancelled");
+    expect((await Order.findById(orderId))?.status).toBe("cancelled");
+    expect((await Product.findById(productId))!.stock).toBe(20);
   });
 
   it("does not un-cancel or override an order that was already paid", async () => {

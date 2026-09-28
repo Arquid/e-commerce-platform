@@ -1,9 +1,10 @@
 import { Response } from "express";
 import Order, { IOrder } from "../models/Order";
-import Product from "../models/Product";
 import { stripe } from "../config/stripe";
 import { AuthRequest } from "../middleware/auth";
 import { logAdminAction } from "../utils/auditLog";
+import { httpError } from "../utils/httpError";
+import { releaseOrderStock } from "../utils/stock";
 
 type OrderStatus = IOrder["status"];
 
@@ -18,12 +19,6 @@ const ADMIN_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   delivered: [],
   cancelled: [],
 };
-
-function httpError(message: string, statusCode: number) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
 
 // A pending order's Stripe Checkout page stays payable for up to 24h, so it
 // has to be closed before the order is cancelled — otherwise the customer can
@@ -109,11 +104,9 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     throw httpError("This order was just changed by someone else — reload and try again.", 409);
   }
 
-  if (from === "paid" && to === "cancelled") {
-    await Promise.all(
-      updated.items.map((item) => Product.updateOne({ _id: item.product }, { $inc: { stock: item.quantity } }))
-    );
-  }
+  // Covers both a reserved (pending) and a sold (paid) order — whichever
+  // units this order actually took out of stock, and only those, go back.
+  if (to === "cancelled") await releaseOrderStock(updated._id);
 
   await logAdminAction(req.userId as string, "order.status_update", "Order", updated.id, { from, to });
 

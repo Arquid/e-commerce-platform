@@ -15,6 +15,7 @@ export interface IOrder extends Document {
   status: "pending" | "paid" | "shipped" | "delivered" | "cancelled";
   stripeSessionId?: string;
   paidAt?: Date;
+  stockHeld: boolean;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -42,6 +43,12 @@ const orderSchema = new Schema<IOrder>(
     // cancelled order that was never paid just received money" apart from a
     // redelivered event for an order that was paid and cancelled later.
     paidAt: Date,
+    // True while this order's items are taken out of product stock — from
+    // checkout (reserved) through payment (sold) — until the order is
+    // cancelled or its checkout expires. Stock is only ever put back by
+    // flipping this to false, so it can't be returned twice, or returned for
+    // units the order never actually took.
+    stockHeld: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

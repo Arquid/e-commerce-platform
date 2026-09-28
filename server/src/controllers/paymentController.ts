@@ -5,6 +5,12 @@ import Order from "../models/Order";
 import Product from "../models/Product";
 import AuditLog from "../models/AuditLog";
 import { AuthRequest } from "../middleware/auth";
+import { httpError } from "../utils/httpError";
+import { reserveStock, releaseReservation, releaseOrderStock } from "../utils/stock";
+
+// Stripe requires at least 30 minutes; the extra minute absorbs the time
+// between computing this and Stripe receiving the request.
+const CHECKOUT_EXPIRY_SECONDS = 31 * 60;
 
 interface CheckoutItemInput {
   productId: string;
@@ -28,51 +34,56 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
 
   const orderItems = items.map((i) => {
     const product = products.find((p) => p.id === i.productId);
-    if (!product) {
-      const error = new Error(`Product not found: ${i.productId}`) as Error & { statusCode: number };
-      error.statusCode = 400;
-      throw error;
-    }
-    if (product.stock < i.quantity) {
-      const error = new Error(
-        `Not enough stock for "${product.name}" (${product.stock} available)`
-      ) as Error & { statusCode: number };
-      error.statusCode = 400;
-      throw error;
-    }
+    if (!product) throw httpError(`Product not found: ${i.productId}`, 400);
     return { product: product.id, name: product.name, price: product.price, quantity: i.quantity };
   });
 
   const totalAmount = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-  const order = await Order.create({
-    user: req.userId,
-    items: orderItems,
-    totalAmount,
-    shippingAddress,
-    status: "pending"
-  });
+  await reserveStock(orderItems);
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    payment_method_types: ["card"],
-    line_items: orderItems.map((i) => ({
-      price_data: {
-        currency: "eur",
-        product_data: { name: i.name },
-        unit_amount: Math.round(i.price * 100)
-      },
-      quantity: i.quantity
-    })),
-    success_url: `${process.env.CLIENT_URL}/order-success?orderId=${order.id}`,
-    cancel_url: `${process.env.CLIENT_URL}/cart`,
-    metadata: { orderId: order.id }
-  });
+  let orderId: string | undefined;
+  try {
+    const order = await Order.create({
+      user: req.userId,
+      items: orderItems,
+      totalAmount,
+      shippingAddress,
+      status: "pending",
+      stockHeld: true,
+    });
+    orderId = order.id;
 
-  order.stripeSessionId = session.id;
-  await order.save();
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: orderItems.map((i) => ({
+        price_data: {
+          currency: "eur",
+          product_data: { name: i.name },
+          unit_amount: Math.round(i.price * 100)
+        },
+        quantity: i.quantity
+      })),
+      success_url: `${process.env.CLIENT_URL}/order-success?orderId=${order.id}`,
+      cancel_url: `${process.env.CLIENT_URL}/cart`,
+      metadata: { orderId: order.id },
+      // Stock is reserved for as long as this page can still be paid, so
+      // don't leave it open for Stripe's default 24h — an abandoned cart
+      // would take those units off sale for a whole day.
+      expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_EXPIRY_SECONDS,
+    });
 
-  res.json({ url: session.url });
+    order.stripeSessionId = session.id;
+    await order.save();
+
+    res.json({ url: session.url });
+  } catch (err) {
+    // Nothing can be paid for yet, so hand the reserved units straight back.
+    await releaseReservation(orderItems);
+    if (orderId) await Order.deleteOne({ _id: orderId });
+    throw err;
+  }
 };
 
 // Stripe calls this endpoint directly (not the browser) to confirm payment.
@@ -89,20 +100,13 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    // Only transition (and decrement stock) the first time this order is
-    // marked paid — Stripe can redeliver the same webhook event, and a
-    // second delivery must not decrement stock twice.
+    // Stock was already taken out at checkout, so paying only changes the
+    // order's status. Matching on "pending" makes a redelivery a no-op.
     const order = await Order.findOneAndUpdate(
       { _id: session.metadata?.orderId, status: "pending" },
       { status: "paid", paidAt: new Date() }
     );
-    if (order) {
-      await Promise.all(
-        order.items.map((item) =>
-          Product.updateOne({ _id: item.product, stock: { $gte: item.quantity } }, { $inc: { stock: -item.quantity } })
-        )
-      );
-    } else {
+    if (!order) {
       // Money arrived for an order that was cancelled before it was ever
       // paid. Cancelling a pending order expires its Stripe session first,
       // so this shouldn't happen — but if it does, the customer has been
@@ -123,13 +127,15 @@ export const handleWebhook = async (req: Request, res: Response) => {
       }
     }
   } else if (event.type === "checkout.session.expired") {
-    // The customer left checkout without paying; Stripe sends this ~24h later.
-    // Only cancel if the order never got paid through some other path.
+    // The customer left checkout without paying. Only cancel if the order
+    // never got paid through some other path, and give its reserved stock
+    // back so the units are on sale again.
     const session = event.data.object as Stripe.Checkout.Session;
-    await Order.findOneAndUpdate(
+    const cancelled = await Order.findOneAndUpdate(
       { _id: session.metadata?.orderId, status: "pending" },
       { status: "cancelled" }
     );
+    if (cancelled) await releaseOrderStock(cancelled._id);
   }
 
   res.json({ received: true });
