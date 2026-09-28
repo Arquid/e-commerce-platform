@@ -148,7 +148,7 @@ npm run test
 
 Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. That same setup file sets `NODE_ENV=test`, which the API rate limiters check to skip themselves — otherwise the auth rate limit (10 requests / 15 min) would trip mid-suite, since tests register/log in far more often than a real user would. See `server/tests/`.
 
-**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`) and every major page/component (`ProductCard`, `NotFoundPage`, `ErrorBoundary`, `HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`):
+**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`), the route guards and session bootstrap (`PrivateRoute`, `AdminRoute`, `AuthBootstrap`), and the main shopping and admin pages/components (`ProductCard`, `Navbar`, `Pagination`, `NotFoundPage`, `ErrorBoundary`, `HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`, `AdminAuditLogPage`, `AdminUsersPage`):
 
 ```bash
 cd client
@@ -157,9 +157,19 @@ npm run test
 
 Simpler component tests render with React Testing Library against a real (but isolated, per-test) Redux store — no backend or network calls involved. Pages that call the API (`HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`) instead mock their RTK Query hooks directly (e.g. `useGetProductsQuery`, `useCreateProductMutation`) rather than the network layer — this keeps each test focused on the component's own logic (form submission, pagination, quantity controls, inline error messages) without needing to fake HTTP responses. See `client/tests/`.
 
+### Coverage
+
+Run either suite with coverage (via `@vitest/coverage-v8`) from `server/` or `client/`:
+
+```bash
+npm run test:coverage
+```
+
+This prints a per-file summary table in the terminal and writes a browsable HTML report to `coverage/index.html` (plus `coverage/lcov.info` for editor/tooling integrations). The `coverage/` folders are git-ignored. Only standalone entry scripts are excluded from the report (`server/src/index.ts`, `server/src/seed.ts`, `client/src/main.tsx`) — everything else counts, so the numbers reflect real gaps. Note that frontend API-slice files show low coverage by design: page tests mock their RTK Query hooks rather than exercising the request definitions.
+
 ## Continuous integration
 
-Every push and pull request to `main` runs a [GitHub Actions workflow](.github/workflows/ci.yml) that type-checks, lints, tests, and builds both the server and the client.
+Every push and pull request to `main` runs a [GitHub Actions workflow](.github/workflows/ci.yml) that type-checks, lints, tests (with coverage), and builds both the server and the client. Each run's HTML coverage report is uploaded as a downloadable artifact (`server-coverage`, `client-coverage`) on the workflow run page.
 
 ## Deploying to production
 
@@ -171,7 +181,8 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- No test coverage reporting (e.g. `@vitest/coverage-v8`) configured yet
+- Some frontend pages have no tests yet (the coverage report shows them at 0%): `LoginPage`, `RegisterPage`, `OrderHistoryPage`, `OrderSuccessPage`, and `ProductDetailPage`
+- No coverage thresholds are enforced — CI reports coverage but won't fail if it drops
 
 ## License
 
