@@ -148,14 +148,14 @@ npm run test
 
 Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. That same setup file sets `NODE_ENV=test`, which the API rate limiters check to skip themselves — otherwise the auth rate limit (10 requests / 15 min) would trip mid-suite, since tests register/log in far more often than a real user would. See `server/tests/`.
 
-**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`), the route guards and session bootstrap (`PrivateRoute`, `AdminRoute`, `AuthBootstrap`), and the main shopping and admin pages/components (`ProductCard`, `Navbar`, `Pagination`, `NotFoundPage`, `ErrorBoundary`, `HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`, `AdminAuditLogPage`, `AdminUsersPage`):
+**Frontend** — covers the Redux slices (`cartSlice`, `authSlice`), the route guards and session bootstrap (`PrivateRoute`, `AdminRoute`, `AuthBootstrap`), and every page plus the shared components (`HomePage`, `ProductDetailPage`, `CartPage`, `LoginPage`, `RegisterPage`, `OrderHistoryPage`, `OrderSuccessPage`, `NotFoundPage`, `AdminProductsPage`, `AdminOrdersPage`, `AdminAuditLogPage`, `AdminUsersPage`, `ProductCard`, `Navbar`, `Pagination`, `ErrorBoundary`):
 
 ```bash
 cd client
 npm run test
 ```
 
-Simpler component tests render with React Testing Library against a real (but isolated, per-test) Redux store — no backend or network calls involved. Pages that call the API (`HomePage`, `CartPage`, `AdminProductsPage`, `AdminOrdersPage`) instead mock their RTK Query hooks directly (e.g. `useGetProductsQuery`, `useCreateProductMutation`) rather than the network layer — this keeps each test focused on the component's own logic (form submission, pagination, quantity controls, inline error messages) without needing to fake HTTP responses. See `client/tests/`.
+Simpler component tests render with React Testing Library against a real (but isolated, per-test) Redux store — no backend or network calls involved. Pages that call the API instead mock their RTK Query hooks directly (e.g. `useGetProductsQuery`, `useLoginMutation`) rather than the network layer — this keeps each test focused on the component's own logic (form submission, redirects after login, pagination, quantity controls, inline error messages) without needing to fake HTTP responses. See `client/tests/`.
 
 ### Coverage
 
@@ -181,7 +181,6 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- Some frontend pages have no tests yet (the coverage report shows them at 0%): `LoginPage`, `RegisterPage`, `OrderHistoryPage`, `OrderSuccessPage`, and `ProductDetailPage`
 - No coverage thresholds are enforced — CI reports coverage but won't fail if it drops
 - Cancelling a paid order restores stock but doesn't refund the customer — refunds are done manually in the Stripe dashboard
 - A started checkout holds its items for up to ~30 minutes even if the customer never pays, so a product can briefly show as sold out while someone has it in an unfinished checkout
