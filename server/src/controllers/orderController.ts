@@ -1,17 +1,17 @@
 import { Response } from "express";
 import Order, { IOrder } from "../models/Order";
-import { stripe } from "../config/stripe";
 import { AuthRequest } from "../middleware/auth";
 import { logAdminAction } from "../utils/auditLog";
 import { httpError } from "../utils/httpError";
 import { releaseOrderStock } from "../utils/stock";
+import { closeCheckoutSession } from "../utils/checkoutSession";
 
 type OrderStatus = IOrder["status"];
 
 // Admins only move orders forward through fulfilment, or cancel them. "paid"
 // is deliberately unreachable from here: only a confirmed Stripe payment (the
-// webhook) may set it, since that's also where stock gets decremented — a
-// manual "paid" would skip that and make the webhook ignore the real payment.
+// webhook) may set it — a manual "paid" would make the webhook, which only
+// acts on pending orders, ignore the real payment when it arrives.
 const ADMIN_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   pending: ["cancelled"],
   paid: ["shipped", "cancelled"],
@@ -19,23 +19,6 @@ const ADMIN_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   delivered: [],
   cancelled: [],
 };
-
-// A pending order's Stripe Checkout page stays payable for up to 24h, so it
-// has to be closed before the order is cancelled — otherwise the customer can
-// still pay and be charged for an order that will never ship.
-async function closeCheckoutSession(sessionId: string): Promise<"closed" | "already_paid"> {
-  try {
-    await stripe.checkout.sessions.expire(sessionId);
-    return "closed";
-  } catch (err) {
-    // expire() also rejects a session that's already expired or completed;
-    // check which one instead of guessing from the error message.
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    if (session.status === "expired") return "closed";
-    if (session.status === "complete") return "already_paid";
-    throw err;
-  }
-}
 
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   const { page, limit } = res.locals.query as { page: number; limit: number };

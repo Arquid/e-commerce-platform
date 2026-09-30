@@ -17,6 +17,8 @@ vi.mock("../src/config/stripe", () => ({
           id: "cs_test_123",
           url: "https://checkout.stripe.com/test-session",
         }),
+        expire: vi.fn(),
+        retrieve: vi.fn(),
       },
     },
     webhooks: {
@@ -263,6 +265,75 @@ describe("POST /api/payments/create-checkout-session", () => {
     const { expires_at } = vi.mocked(stripe.checkout.sessions.create).mock.lastCall![0]!;
     expect(expires_at! - before).toBeGreaterThanOrEqual(30 * 60);
     expect(expires_at! - before).toBeLessThanOrEqual(35 * 60);
+  });
+
+  describe("when the customer already has a checkout open (e.g. came back via Stripe's back link)", () => {
+    const withSession = (id: string) => ({ id, url: `https://checkout.stripe.com/${id}` });
+
+    it("replaces it instead of reserving the stock again", async () => {
+      // Regression test: every retry used to reserve the items again, so one
+      // customer wanting a single unit could end up holding all of them.
+      const product = await createProduct("Popular", 3);
+      const agent = await registerAndLogin("retrier@example.com");
+      vi.mocked(stripe.checkout.sessions.expire).mockClear();
+      vi.mocked(stripe.checkout.sessions.create)
+        .mockResolvedValueOnce(withSession("cs_first") as any)
+        .mockResolvedValueOnce(withSession("cs_second") as any)
+        .mockResolvedValueOnce(withSession("cs_third") as any);
+      const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+
+      for (let i = 0; i < 3; i++) {
+        expect((await agent.post("/api/payments/create-checkout-session").send(body)).status).toBe(200);
+      }
+
+      expect((await Product.findById(product.id))!.stock).toBe(2);
+      expect(await Order.countDocuments({ status: "pending" })).toBe(1);
+      expect(await Order.countDocuments({ status: "cancelled" })).toBe(2);
+      expect((await Order.findOne({ status: "pending" }))?.stripeSessionId).toBe("cs_third");
+      expect(stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_first");
+      expect(stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_second");
+    });
+
+    it("lets them check out again for the last unit they were already holding", async () => {
+      const product = await createProduct("Last One Again", 1);
+      const agent = await registerAndLogin("last-again@example.com");
+      const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+
+      expect((await agent.post("/api/payments/create-checkout-session").send(body)).status).toBe(200);
+      expect((await agent.post("/api/payments/create-checkout-session").send(body)).status).toBe(200);
+      expect((await Product.findById(product.id))!.stock).toBe(0);
+    });
+
+    it("keeps the previous checkout if the customer has already paid for it", async () => {
+      const product = await createProduct("Paid Already", 5);
+      const agent = await registerAndLogin("paid-already@example.com");
+      vi.mocked(stripe.checkout.sessions.create).mockResolvedValueOnce(withSession("cs_paid") as any);
+      const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+      await agent.post("/api/payments/create-checkout-session").send(body);
+      const firstOrder = await Order.findOne({ stripeSessionId: "cs_paid" });
+
+      vi.mocked(stripe.checkout.sessions.expire).mockRejectedValueOnce(new Error("session is complete"));
+      vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({ status: "complete" } as any);
+      const res = await agent.post("/api/payments/create-checkout-session").send(body);
+
+      expect(res.status).toBe(200);
+      // Left pending for the webhook to mark as paid — and its units stay sold.
+      expect((await Order.findById(firstOrder!._id))?.status).toBe("pending");
+      expect((await Product.findById(product.id))!.stock).toBe(3);
+    });
+
+    it("never touches another customer's open checkout", async () => {
+      const product = await createProduct("Shared", 5);
+      const alice = await registerAndLogin("replace-alice@example.com");
+      const bob = await registerAndLogin("replace-bob@example.com");
+      const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+
+      await alice.post("/api/payments/create-checkout-session").send(body);
+      await bob.post("/api/payments/create-checkout-session").send(body);
+
+      expect(await Order.countDocuments({ status: "pending" })).toBe(2);
+      expect((await Product.findById(product.id))!.stock).toBe(3);
+    });
   });
 });
 

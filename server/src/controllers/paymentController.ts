@@ -7,10 +7,35 @@ import AuditLog from "../models/AuditLog";
 import { AuthRequest } from "../middleware/auth";
 import { httpError } from "../utils/httpError";
 import { reserveStock, releaseReservation, releaseOrderStock } from "../utils/stock";
+import { closeCheckoutSession } from "../utils/checkoutSession";
 
 // Stripe requires at least 30 minutes; the extra minute absorbs the time
 // between computing this and Stripe receiving the request.
 const CHECKOUT_EXPIRY_SECONDS = 31 * 60;
+
+// A customer has at most one open checkout. Stripe's "back" link returns them
+// to the cart with their previous order still pending and its stock still
+// reserved, so without this every retry reserved the items again — enough
+// retries and the customer (or a script) held all of the stock.
+async function abandonPreviousCheckouts(userId: string) {
+  const pending = await Order.find({ user: userId, status: "pending" });
+  for (const order of pending) {
+    try {
+      if (order.stripeSessionId && (await closeCheckoutSession(order.stripeSessionId)) === "already_paid") {
+        // Paid moments ago — the webhook will mark it paid, so keep it.
+        continue;
+      }
+    } catch (err) {
+      // Couldn't reach Stripe to close it. Cancelling it anyway could leave a
+      // still-payable checkout attached to a cancelled order, so leave it to
+      // expire on its own.
+      console.error(`Could not close the previous checkout for order ${order.id}`, err);
+      continue;
+    }
+    const cancelled = await Order.findOneAndUpdate({ _id: order._id, status: "pending" }, { status: "cancelled" });
+    if (cancelled) await releaseOrderStock(cancelled._id);
+  }
+}
 
 interface CheckoutItemInput {
   productId: string;
@@ -40,6 +65,9 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
 
   const totalAmount = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
+  // Before reserving, so units this customer already holds are available to
+  // the checkout replacing it.
+  await abandonPreviousCheckouts(req.userId as string);
   await reserveStock(orderItems);
 
   let orderId: string | undefined;
