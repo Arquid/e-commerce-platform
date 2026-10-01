@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useGetAllOrdersQuery, useUpdateOrderStatusMutation } from "../features/orders/ordersApiSlice";
 import type { OrderStatus } from "../features/orders/ordersApiSlice";
 import Pagination from "../components/Pagination";
+import { getErrorMessage } from "../utils/errorMessage";
 
 // Mirrors the server's allowed transitions (orderController.ts) so the menu
 // only offers moves that will succeed — the server is what enforces them.
@@ -13,14 +14,6 @@ const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
   delivered: [],
   cancelled: [],
 };
-
-function errorMessage(err: unknown): string {
-  if (typeof err === "object" && err !== null && "data" in err) {
-    const data = (err as { data?: { message?: unknown } }).data;
-    if (typeof data?.message === "string") return data.message;
-  }
-  return "Update failed — try again";
-}
 
 const statusStyles: Record<OrderStatus, string> = {
   pending: "bg-amber-50 text-amber-700",
@@ -41,7 +34,7 @@ export default function AdminOrdersPage() {
     try {
       await updateOrderStatus({ id: orderId, status }).unwrap();
     } catch (err) {
-      setFailure({ orderId, message: errorMessage(err) });
+      setFailure({ orderId, message: getErrorMessage(err, "Update failed — try again") });
     }
   };
 

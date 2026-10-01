@@ -13,6 +13,10 @@ import { closeCheckoutSession } from "../utils/checkoutSession";
 // between computing this and Stripe receiving the request.
 const CHECKOUT_EXPIRY_SECONDS = 31 * 60;
 
+// How long a pending order without a Stripe session counts as "still being
+// created by another request" rather than abandoned.
+const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000;
+
 // A customer has at most one open checkout. Stripe's "back" link returns them
 // to the cart with their previous order still pending and its stock still
 // reserved, so without this every retry reserved the items again — enough
@@ -20,21 +24,39 @@ const CHECKOUT_EXPIRY_SECONDS = 31 * 60;
 async function abandonPreviousCheckouts(userId: string) {
   const pending = await Order.find({ user: userId, status: "pending" });
   for (const order of pending) {
-    try {
-      if (order.stripeSessionId && (await closeCheckoutSession(order.stripeSessionId)) === "already_paid") {
-        // Paid moments ago — the webhook will mark it paid, so keep it.
+    if (!order.stripeSessionId) {
+      // No Stripe session yet: either another request of this customer's is
+      // part-way through creating this very order, or it crashed there. A
+      // young one is left alone — cancelling it would let that request go on
+      // to hand out a payable checkout for a cancelled order — and the unique
+      // index on pending orders makes the newer request wait its turn. Only an
+      // old one is treated as abandoned.
+      if (Date.now() - order.createdAt.getTime() < IN_FLIGHT_GRACE_MS) continue;
+    } else {
+      try {
+        if ((await closeCheckoutSession(order.stripeSessionId)) === "already_paid") {
+          // Paid moments ago and the webhook hasn't arrived yet. Stripe has
+          // confirmed it, so record it as paid now (the webhook's own update
+          // then finds nothing pending and does nothing) — leaving it pending
+          // would also block this customer's next checkout.
+          await Order.findOneAndUpdate({ _id: order._id, status: "pending" }, { status: "paid", paidAt: new Date() });
+          continue;
+        }
+      } catch (err) {
+        // Couldn't reach Stripe to close it. Cancelling it anyway could leave a
+        // still-payable checkout attached to a cancelled order, so leave it to
+        // expire on its own.
+        console.error(`Could not close the previous checkout for order ${order.id}`, err);
         continue;
       }
-    } catch (err) {
-      // Couldn't reach Stripe to close it. Cancelling it anyway could leave a
-      // still-payable checkout attached to a cancelled order, so leave it to
-      // expire on its own.
-      console.error(`Could not close the previous checkout for order ${order.id}`, err);
-      continue;
     }
     const cancelled = await Order.findOneAndUpdate({ _id: order._id, status: "pending" }, { status: "cancelled" });
     if (cancelled) await releaseOrderStock(cancelled._id);
   }
+}
+
+function isDuplicateKeyError(err: unknown) {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === 11000;
 }
 
 interface CheckoutItemInput {
@@ -110,6 +132,11 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
     // Nothing can be paid for yet, so hand the reserved units straight back.
     await releaseReservation(orderItems);
     if (orderId) await Order.deleteOne({ _id: orderId });
+    // Another checkout of this customer's won the race for their one pending
+    // order (see the unique index on Order).
+    if (isDuplicateKeyError(err)) {
+      throw httpError("You already have a checkout in progress. Wait a moment, then try again.", 409);
+    }
     throw err;
   }
 };

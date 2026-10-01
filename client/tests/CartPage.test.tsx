@@ -124,18 +124,49 @@ describe("CartPage", () => {
     });
   });
 
-  it("shows an inline error when checkout fails, e.g. due to insufficient stock", async () => {
-    mockCheckout(vi.fn().mockReturnValue({ unwrap: () => Promise.reject(new Error("Not enough stock")) }));
-    renderCartPage([sampleItem]);
-
+  function submitCheckout() {
     fireEvent.change(screen.getByLabelText("Address"), { target: { value: "Testikatu 1" } });
     fireEvent.change(screen.getByLabelText("City"), { target: { value: "Helsinki" } });
     fireEvent.change(screen.getByLabelText("Postal code"), { target: { value: "00100" } });
     fireEvent.change(screen.getByLabelText("Country"), { target: { value: "FI" } });
     fireEvent.click(screen.getByRole("button", { name: /proceed to checkout/i }));
+  }
 
-    await waitFor(() => {
-      expect(screen.getByText(/could not start checkout/i)).toBeInTheDocument();
-    });
+  it("shows a generic message when checkout fails without an explanation, e.g. a dropped connection", async () => {
+    mockCheckout(vi.fn().mockReturnValue({ unwrap: () => Promise.reject(new Error("Failed to fetch")) }));
+    renderCartPage([sampleItem]);
+
+    submitCheckout();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start checkout. Please try again.");
+  });
+
+  it.each([
+    [400, 'Not enough stock for "Test Sneakers" (0 available)'],
+    [409, "You already have a checkout in progress. Wait a moment, then try again."],
+    [429, "Too many checkout attempts. Please wait a few minutes and try again."],
+  ])("shows the server's own explanation when checkout is refused with %i", async (status, message) => {
+    mockCheckout(vi.fn().mockReturnValue({ unwrap: () => Promise.reject({ status, data: { message } }) }));
+    renderCartPage([sampleItem]);
+
+    submitCheckout();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByText(/could not start checkout/i)).not.toBeInTheDocument();
+  });
+
+  it("clears the previous error when the customer tries again", async () => {
+    const trigger = vi
+      .fn()
+      .mockReturnValueOnce({ unwrap: () => Promise.reject({ status: 409, data: { message: "Checkout in progress." } }) })
+      .mockReturnValueOnce({ unwrap: () => new Promise(() => {}) });
+    mockCheckout(trigger);
+    renderCartPage([sampleItem]);
+
+    submitCheckout();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /proceed to checkout/i }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 });

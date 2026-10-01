@@ -6,6 +6,10 @@ let mongod: MongoMemoryServer;
 export async function connectTestDb() {
   mongod = await MongoMemoryServer.create();
   await mongoose.connect(mongod.getUri());
+  // Indexes are built in the background after connecting. Wait for them, so a
+  // test that depends on one (e.g. the unique index on pending orders) can't
+  // run before it exists.
+  await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
 }
 
 export async function clearTestDb() {

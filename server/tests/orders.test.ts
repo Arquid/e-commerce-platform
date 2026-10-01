@@ -83,9 +83,10 @@ describe("GET /api/orders", () => {
 
   it("paginates results and rejects an invalid page parameter", async () => {
     const alice = await registerAndLogin("alice-paginated@example.com");
-    await createOrderFor(alice.user.id);
-    await createOrderFor(alice.user.id);
-    await createOrderFor(alice.user.id);
+    // A customer can have only one pending order, so use paid ones here.
+    await createOrderFor(alice.user.id, "paid");
+    await createOrderFor(alice.user.id, "paid");
+    await createOrderFor(alice.user.id, "paid");
 
     const res = await alice.agent.get("/api/orders?page=1&limit=2");
     expect(res.status).toBe(200);

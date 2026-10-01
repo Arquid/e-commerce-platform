@@ -5,6 +5,7 @@ import { useSelector, useDispatch } from "react-redux";
 import type { RootState } from "../app/store";
 import { removeItem, updateQuantity } from "../features/cart/cartSlice";
 import { useCreateCheckoutSessionMutation } from "../features/orders/ordersApiSlice";
+import { getErrorMessage } from "../utils/errorMessage";
 
 export default function CartPage() {
   const items = useSelector((s: RootState) => s.cart.items);
@@ -12,21 +13,23 @@ export default function CartPage() {
   const [createCheckoutSession, { isLoading }] = useCreateCheckoutSessionMutation();
 
   const [address, setAddress] = useState({ line1: "", city: "", postalCode: "", country: "" });
-  const [checkoutFailed, setCheckoutFailed] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
-    setCheckoutFailed(false);
+    setCheckoutError(null);
     try {
       const res = await createCheckoutSession({
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         shippingAddress: address,
       }).unwrap();
       window.location.href = res.url; // redirect to Stripe Checkout
-    } catch {
-      setCheckoutFailed(true);
+    } catch (err) {
+      // The server says why (sold out, a checkout already in progress, too
+      // many attempts); only a failure it couldn't explain gets the generic text.
+      setCheckoutError(getErrorMessage(err, "Could not start checkout. Please try again."));
     }
   };
 
@@ -149,9 +152,9 @@ export default function CartPage() {
             <span>{total.toFixed(2)} €</span>
           </div>
 
-          {checkoutFailed && (
-            <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-              Could not start checkout. One or more items may be out of stock — try adjusting the quantities.
+          {checkoutError && (
+            <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {checkoutError}
             </p>
           )}
 

@@ -103,6 +103,39 @@ describe("PATCH /api/users/:id/role", () => {
     expect(logs[0].details).toMatchObject({ from: "customer", to: "admin" });
   });
 
+  it("takes effect immediately: a demoted admin's existing session loses admin access", async () => {
+    // Regression test: the role used to be read from the login token, so a
+    // demoted admin kept full admin access until the token expired (days) —
+    // and could use it to demote whoever had demoted them.
+    const boss = await registerAndLogin("boss@example.com", "admin");
+    const demoted = await registerAndLogin("demoted@example.com", "admin");
+    expect((await demoted.agent.get("/api/users")).status).toBe(200);
+
+    await boss.agent.patch(`/api/users/${demoted.user.id}/role`).send({ role: "customer" });
+
+    expect((await demoted.agent.get("/api/users")).status).toBe(403);
+    const retaliation = await demoted.agent.patch(`/api/users/${boss.user.id}/role`).send({ role: "customer" });
+    expect(retaliation.status).toBe(403);
+    expect((await User.findById(boss.user.id))?.role).toBe("admin");
+  });
+
+  it("takes effect immediately in the other direction too: a promoted customer needs no new login", async () => {
+    const boss = await registerAndLogin("boss2@example.com", "admin");
+    const promoted = await registerAndLogin("promoted@example.com");
+    expect((await promoted.agent.get("/api/users")).status).toBe(403);
+
+    await boss.agent.patch(`/api/users/${promoted.user.id}/role`).send({ role: "admin" });
+
+    expect((await promoted.agent.get("/api/users")).status).toBe(200);
+  });
+
+  it("gives a deleted admin's session no access at all", async () => {
+    const gone = await registerAndLogin("gone@example.com", "admin");
+    await User.deleteOne({ _id: gone.user.id });
+
+    expect((await gone.agent.get("/api/users")).status).toBe(401);
+  });
+
   it("demotes an admin back to customer", async () => {
     const admin = await registerAndLogin("admin6@example.com", "admin");
     const target = await registerAndLogin("demote-me@example.com", "admin");

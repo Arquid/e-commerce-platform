@@ -304,7 +304,7 @@ describe("POST /api/payments/create-checkout-session", () => {
       expect((await Product.findById(product.id))!.stock).toBe(0);
     });
 
-    it("keeps the previous checkout if the customer has already paid for it", async () => {
+    it("keeps the previous checkout, recorded as paid, if the customer has already paid for it", async () => {
       const product = await createProduct("Paid Already", 5);
       const agent = await registerAndLogin("paid-already@example.com");
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValueOnce(withSession("cs_paid") as any);
@@ -317,9 +317,127 @@ describe("POST /api/payments/create-checkout-session", () => {
       const res = await agent.post("/api/payments/create-checkout-session").send(body);
 
       expect(res.status).toBe(200);
-      // Left pending for the webhook to mark as paid — and its units stay sold.
-      expect((await Order.findById(firstOrder!._id))?.status).toBe("pending");
+      // Stripe has confirmed the payment, so it's recorded as paid right away
+      // (leaving it pending would also block this new checkout) and its
+      // units stay sold.
+      const first = await Order.findById(firstOrder!._id);
+      expect(first?.status).toBe("paid");
+      expect(first?.paidAt).toBeDefined();
       expect((await Product.findById(product.id))!.stock).toBe(3);
+
+      // The webhook arriving afterwards must find nothing left to do.
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce({
+        type: "checkout.session.completed",
+        data: { object: { id: "cs_paid", metadata: { orderId: firstOrder!.id } } },
+      } as any);
+      await deliverWebhook();
+      expect((await Order.findById(firstOrder!._id))?.status).toBe("paid");
+      expect(await AuditLog.countDocuments()).toBe(0);
+      expect((await Product.findById(product.id))!.stock).toBe(3);
+    });
+
+    it("holds the stock only once when the same customer submits twice at the same moment", async () => {
+      // Regression test: two simultaneous requests both saw no pending order,
+      // so both reserved the items — one customer, one unit wanted, two held.
+      // Timing decides whether the second request replaces the first or is
+      // turned away, so repeat it: the outcome may differ, the totals may not.
+      const product = await createProduct("Double Submit", 50);
+      const agent = await registerAndLogin("double-submit@example.com");
+      const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+
+      for (let round = 1; round <= 8; round++) {
+        const results = await Promise.all([
+          agent.post("/api/payments/create-checkout-session").send(body),
+          agent.post("/api/payments/create-checkout-session").send(body),
+        ]);
+
+        const statuses = results.map((r) => r.status);
+        expect(statuses.some((s) => s === 200)).toBe(true);
+        expect(statuses.every((s) => s === 200 || s === 409)).toBe(true);
+        expect(await Order.countDocuments({ status: "pending" })).toBe(1);
+        // One unit held, however many requests it took.
+        expect((await Product.findById(product.id))!.stock).toBe(49);
+
+        // Hand it back so every round starts from the same place.
+        await Order.updateMany({ status: "pending" }, { status: "cancelled" });
+        await Product.updateOne({ _id: product.id }, { stock: 50 });
+        await Order.updateMany({}, { stockHeld: false });
+      }
+    });
+
+    it("tells the customer to wait when another checkout of theirs is still being created", async () => {
+      const product = await createProduct("In Flight", 5);
+      const agent = await registerAndLogin("in-flight@example.com");
+      const me = (await agent.get("/api/auth/me")).body.id as string;
+      // Another request has created the order but not yet attached a Stripe session.
+      await Order.create({
+        user: me,
+        items: [{ product: product._id, name: "In Flight", quantity: 1, price: 10 }],
+        totalAmount: 10,
+        shippingAddress,
+        status: "pending",
+        stockHeld: true,
+      });
+      await Product.updateOne({ _id: product._id }, { stock: 4 });
+
+      const res = await agent.post("/api/payments/create-checkout-session").send({
+        items: [{ productId: product.id, quantity: 1 }],
+        shippingAddress,
+      });
+
+      expect(res.status).toBe(409);
+      // Its units are untouched: this request reserved and gave back its own.
+      expect((await Product.findById(product._id))!.stock).toBe(4);
+      expect(await Order.countDocuments({ status: "pending" })).toBe(1);
+    });
+
+    it("replaces a pending order that never got a Stripe session once it is clearly abandoned", async () => {
+      const product = await createProduct("Crashed Mid-Checkout", 5);
+      const agent = await registerAndLogin("crashed@example.com");
+      const me = (await agent.get("/api/auth/me")).body.id as string;
+      const stale = await Order.create({
+        user: me,
+        items: [{ product: product._id, name: "Crashed Mid-Checkout", quantity: 1, price: 10 }],
+        totalAmount: 10,
+        shippingAddress,
+        status: "pending",
+        stockHeld: true,
+      });
+      await Order.collection.updateOne({ _id: stale._id }, { $set: { createdAt: new Date(Date.now() - 10 * 60 * 1000) } });
+      await Product.updateOne({ _id: product._id }, { stock: 4 });
+
+      const res = await agent.post("/api/payments/create-checkout-session").send({
+        items: [{ productId: product.id, quantity: 1 }],
+        shippingAddress,
+      });
+
+      expect(res.status).toBe(200);
+      expect((await Order.findById(stale._id))?.status).toBe("cancelled");
+      expect((await Product.findById(product._id))!.stock).toBe(4);
+    });
+
+    it("stops a customer who opens checkouts over and over, on the real route", async () => {
+      const product = await createProduct("Rate Limited", 50);
+      const agent = await registerAndLogin("hammer@example.com");
+      const body = { items: [{ productId: product.id, quantity: 1 }], shippingAddress };
+
+      // Log in first (above) under the test environment so the auth cookie
+      // isn't marked Secure, then let the limiter, which skips itself in
+      // tests, apply for these requests.
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        for (let i = 0; i < 10; i++) {
+          expect((await agent.post("/api/payments/create-checkout-session").send(body)).status).toBe(200);
+        }
+        const blocked = await agent.post("/api/payments/create-checkout-session").send(body);
+        expect(blocked.status).toBe(429);
+        expect(blocked.body.message).toMatch(/Too many checkout attempts/);
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+      // The blocked attempt reserved nothing: only the one open checkout is held.
+      expect((await Product.findById(product.id))!.stock).toBe(49);
     });
 
     it("never touches another customer's open checkout", async () => {

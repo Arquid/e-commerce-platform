@@ -16,6 +16,7 @@ export interface IOrder extends Document {
   stripeSessionId?: string;
   paidAt?: Date;
   stockHeld: boolean;
+  createdAt: Date;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -52,5 +53,11 @@ const orderSchema = new Schema<IOrder>(
   },
   { timestamps: true }
 );
+
+// A customer can have at most one pending order. Checking for an existing one
+// in application code isn't enough: two requests arriving together both see
+// none and both create one, reserving the stock twice. The database enforces
+// it atomically instead — the loser of the race gets a duplicate-key error.
+orderSchema.index({ user: 1 }, { unique: true, partialFilterExpression: { status: "pending" } });
 
 export default mongoose.model<IOrder>("Order", orderSchema);
