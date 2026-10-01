@@ -167,9 +167,18 @@ npm run test:coverage
 
 This prints a per-file summary table in the terminal and writes a browsable HTML report to `coverage/index.html` (plus `coverage/lcov.info` for editor/tooling integrations). The `coverage/` folders are git-ignored. Only standalone entry scripts are excluded from the report (`server/src/index.ts`, `server/src/seed.ts`, `client/src/main.tsx`) — everything else counts, so the numbers reflect real gaps. Note that frontend API-slice files show low coverage by design: page tests mock their RTK Query hooks rather than exercising the request definitions.
 
+**Coverage thresholds.** `test:coverage` also fails (non-zero exit) if overall coverage falls below a minimum, so a change that leaves new code untested can't slip through unnoticed. The limits sit a few points under the current levels, in `coverage.thresholds` in each `vitest.config.mts`:
+
+| | Statements | Branches | Functions | Lines |
+| --- | --- | --- | --- | --- |
+| Server | 88 % | 72 % | 92 % | 90 % |
+| Client | 88 % | 84 % | 78 % | 88 % |
+
+If a change legitimately raises coverage, raise the thresholds with it; don't lower them to get a build through. Plain `npm run test` doesn't check coverage — only `test:coverage` does.
+
 ## Continuous integration
 
-Every push and pull request to `main` runs a [GitHub Actions workflow](.github/workflows/ci.yml) that type-checks, lints, tests (with coverage), and builds both the server and the client. Each run's HTML coverage report is uploaded as a downloadable artifact (`server-coverage`, `client-coverage`) on the workflow run page.
+Every push and pull request to `main` runs a [GitHub Actions workflow](.github/workflows/ci.yml) that type-checks, lints, tests (with coverage, failing the build if it drops below the thresholds above), and builds both the server and the client. Each run's HTML coverage report is uploaded as a downloadable artifact (`server-coverage`, `client-coverage`) on the workflow run page.
 
 ## Deploying to production
 
@@ -181,7 +190,6 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- No coverage thresholds are enforced — CI reports coverage but won't fail if it drops
 - Cancelling a paid order restores stock but doesn't refund the customer — refunds are done manually in the Stripe dashboard
 - A started checkout holds its items for up to ~30 minutes even if the customer never pays, so a product can briefly show as sold out while someone has it in an unfinished checkout. Each account can hold only one checkout at a time, but many accounts together could still tie up stock (account sign-ups are rate-limited per IP, which limits this)
 - Orders created before stock reservation was introduced don't hold a reservation, so cancelling one of them won't put stock back (the safe side — it can never add units that aren't really there)
