@@ -42,7 +42,9 @@ export const releaseReservation = putBack;
 // the same atomic update that decides whether to return anything, so a
 // cancel racing a checkout expiry (or any repeat) can't return stock twice,
 // and an order that never held stock can't return any.
+// Returns whether it put anything back.
 export async function releaseOrderStock(orderId: string | Types.ObjectId) {
   const order = await Order.findOneAndUpdate({ _id: orderId, stockHeld: true }, { stockHeld: false });
   if (order) await putBack(order.items);
+  return Boolean(order);
 }

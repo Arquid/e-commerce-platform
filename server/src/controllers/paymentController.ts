@@ -6,16 +6,10 @@ import Product from "../models/Product";
 import AuditLog from "../models/AuditLog";
 import { AuthRequest } from "../middleware/auth";
 import { httpError } from "../utils/httpError";
-import { reserveStock, releaseReservation, releaseOrderStock } from "../utils/stock";
+import { reserveStock, releaseReservation } from "../utils/stock";
 import { closeCheckoutSession } from "../utils/checkoutSession";
-
-// Stripe requires at least 30 minutes; the extra minute absorbs the time
-// between computing this and Stripe receiving the request.
-const CHECKOUT_EXPIRY_SECONDS = 31 * 60;
-
-// How long a pending order without a Stripe session counts as "still being
-// created by another request" rather than abandoned.
-const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000;
+import { cancelPendingOrder, markPendingOrderPaid } from "../utils/pendingOrders";
+import { CHECKOUT_EXPIRY_SECONDS, IN_FLIGHT_GRACE_MS } from "../config/checkout";
 
 // A customer has at most one open checkout. Stripe's "back" link returns them
 // to the cart with their previous order still pending and its stock still
@@ -39,7 +33,7 @@ async function abandonPreviousCheckouts(userId: string) {
           // confirmed it, so record it as paid now (the webhook's own update
           // then finds nothing pending and does nothing) — leaving it pending
           // would also block this customer's next checkout.
-          await Order.findOneAndUpdate({ _id: order._id, status: "pending" }, { status: "paid", paidAt: new Date() });
+          await markPendingOrderPaid(order._id);
           continue;
         }
       } catch (err) {
@@ -50,8 +44,7 @@ async function abandonPreviousCheckouts(userId: string) {
         continue;
       }
     }
-    const cancelled = await Order.findOneAndUpdate({ _id: order._id, status: "pending" }, { status: "cancelled" });
-    if (cancelled) await releaseOrderStock(cancelled._id);
+    await cancelPendingOrder(order._id);
   }
 }
 
@@ -157,10 +150,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
     const session = event.data.object as Stripe.Checkout.Session;
     // Stock was already taken out at checkout, so paying only changes the
     // order's status. Matching on "pending" makes a redelivery a no-op.
-    const order = await Order.findOneAndUpdate(
-      { _id: session.metadata?.orderId, status: "pending" },
-      { status: "paid", paidAt: new Date() }
-    );
+    const order = await markPendingOrderPaid(session.metadata?.orderId as string);
     if (!order) {
       // Money arrived for an order that was cancelled before it was ever
       // paid. Cancelling a pending order expires its Stripe session first,
@@ -186,11 +176,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
     // never got paid through some other path, and give its reserved stock
     // back so the units are on sale again.
     const session = event.data.object as Stripe.Checkout.Session;
-    const cancelled = await Order.findOneAndUpdate(
-      { _id: session.metadata?.orderId, status: "pending" },
-      { status: "cancelled" }
-    );
-    if (cancelled) await releaseOrderStock(cancelled._id);
+    await cancelPendingOrder(session.metadata?.orderId as string);
   }
 
   res.json({ received: true });

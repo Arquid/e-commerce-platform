@@ -14,6 +14,10 @@ function describeEntry(entry: AuditLogEntry): string {
       return `Changed ${details.email ?? entry.targetId}'s role from ${details.from} to ${details.to}`;
     case "payment.received_for_cancelled_order":
       return `⚠ Payment received for cancelled order #${entry.targetId?.slice(-6)} — the customer was charged; refund it in Stripe`;
+    case "checkout.expired_cleanup":
+      return `Cancelled abandoned order #${entry.targetId?.slice(-6)} and returned its stock (Stripe never reported the checkout as expired)`;
+    case "payment.reconciled":
+      return `Marked order #${entry.targetId?.slice(-6)} as paid after checking with Stripe (the payment notification never arrived)`;
     default:
       return `${entry.action} on ${entry.targetType} ${entry.targetId ?? ""}`;
   }

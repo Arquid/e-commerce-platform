@@ -84,6 +84,34 @@ describe("AdminAuditLogPage", () => {
     expect(screen.getByText("System")).toBeInTheDocument();
   });
 
+  it("describes the system's stale-checkout cleanup and payment reconciliation", () => {
+    mockGetAuditLogs(
+      [
+        {
+          _id: "log5",
+          action: "checkout.expired_cleanup",
+          targetType: "Order",
+          targetId: "order111111",
+          details: { reason: "stripe_session_expired" },
+          createdAt: "2026-01-05T00:00:00.000Z",
+        },
+        {
+          _id: "log6",
+          action: "payment.reconciled",
+          targetType: "Order",
+          targetId: "order222222",
+          details: { stripeSessionId: "cs_test" },
+          createdAt: "2026-01-06T00:00:00.000Z",
+        },
+      ] as AuditLogEntry[],
+      false
+    );
+    render(<AdminAuditLogPage />);
+    expect(screen.getByText(/Cancelled abandoned order #111111 and returned its stock/)).toBeInTheDocument();
+    expect(screen.getByText(/Marked order #222222 as paid after checking with Stripe/)).toBeInTheDocument();
+    expect(screen.getAllByText("System")).toHaveLength(2);
+  });
+
   it("describes a user role update entry", () => {
     const roleEntry: AuditLogEntry = {
       _id: "log3",
