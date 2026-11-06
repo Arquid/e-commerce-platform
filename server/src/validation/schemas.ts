@@ -37,6 +37,11 @@ export const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100, "Limit cannot exceed 100").default(20),
 });
 
+export const productListQuerySchema = paginationQuerySchema.extend({
+  minPrice: z.coerce.number().nonnegative("minPrice cannot be negative").optional(),
+  maxPrice: z.coerce.number().nonnegative("maxPrice cannot be negative").optional(),
+});
+
 export const updateUserRoleSchema = z.object({
   role: z.enum(["customer", "admin"]),
 });

@@ -21,7 +21,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 
 ## Features
 
-- Product listing with search, category filter, and pagination
+- Product listing with search, category filter, price range (`minPrice` / `maxPrice`), sorting (`price_asc`, `price_desc`, newest by default) and pagination. Invalid filter values (e.g. `minPrice=abc`) and malformed ids (e.g. `/api/products/abc`) are answered with a 400 instead of a server error
 - Product detail page with stock status
 - Shopping cart (persisted in `localStorage`) with quantity controls
 - Shipping address form collected at checkout
@@ -172,7 +172,7 @@ This prints a per-file summary table in the terminal and writes a browsable HTML
 
 | | Statements | Branches | Functions | Lines |
 | --- | --- | --- | --- | --- |
-| Server | 89 % | 74 % | 93 % | 91 % |
+| Server | 92 % | 82 % | 96 % | 93 % |
 | Client | 88 % | 84 % | 78 % | 88 % |
 
 If a change legitimately raises coverage, raise the thresholds with it; don't lower them to get a build through. Plain `npm run test` doesn't check coverage — only `test:coverage` does.

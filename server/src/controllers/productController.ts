@@ -4,15 +4,20 @@ import { AuthRequest } from "../middleware/auth";
 import { logAdminAction } from "../utils/auditLog";
 
 export const getProducts = async (req: Request, res: Response) => {
-  const { category, minPrice, maxPrice, search, sort } = req.query;
-  const { page: pageNum, limit: limitNum } = res.locals.query as { page: number; limit: number };
+  const { category, search, sort } = req.query;
+  const {
+    page: pageNum,
+    limit: limitNum,
+    minPrice,
+    maxPrice,
+  } = res.locals.query as { page: number; limit: number; minPrice?: number; maxPrice?: number };
 
   const filter: Record<string, any> = {};
   if (category) filter.category = category;
-  if (minPrice || maxPrice) {
+  if (minPrice !== undefined || maxPrice !== undefined) {
     filter.price = {};
-    if (minPrice) filter.price.$gte = Number(minPrice);
-    if (maxPrice) filter.price.$lte = Number(maxPrice);
+    if (minPrice !== undefined) filter.price.$gte = minPrice;
+    if (maxPrice !== undefined) filter.price.$lte = maxPrice;
   }
   if (search) filter.$text = { $search: String(search) };
 

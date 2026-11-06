@@ -19,3 +19,11 @@ describe("GET /api/health", () => {
 
   afterAll(disconnectTestDb);
 });
+
+describe("unknown routes", () => {
+  it("answer 404 with the route in the message", async () => {
+    const res = await request(app).get("/api/does-not-exist");
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe("Route not found: /api/does-not-exist");
+  });
+});

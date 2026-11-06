@@ -98,6 +98,16 @@ describe("POST /api/payments/create-checkout-session", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects a malformed product id with 400 instead of a server error", async () => {
+    const agent = await registerAndLogin("badproduct@example.com");
+    const res = await agent.post("/api/payments/create-checkout-session").send({
+      items: [{ productId: "not-an-id", quantity: 1 }],
+      shippingAddress: { line1: "Test street 1", city: "Helsinki", postalCode: "00100", country: "FI" },
+    });
+    expect(res.status).toBe(400);
+    expect(await Order.countDocuments()).toBe(0);
+  });
+
   it("creates a pending order and returns the Stripe checkout URL", async () => {
     const agent = await registerAndLogin("checkout@example.com");
     const product = await Product.create({

@@ -8,6 +8,7 @@ export interface IProduct extends Document {
   imageUrl: string;
   stock: number;
   rating: number;
+  createdAt: Date;
 }
 
 const productSchema = new Schema<IProduct>(
