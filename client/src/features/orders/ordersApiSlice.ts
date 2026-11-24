@@ -12,6 +12,9 @@ export interface Order {
   items: { product: string; name: string; quantity: number; price: number }[];
   totalAmount: number;
   status: OrderStatus;
+  // Set on a cancelled order whose payment is being, or has been, returned.
+  refundPending?: boolean;
+  refundedAt?: string;
   createdAt: string;
 }
 

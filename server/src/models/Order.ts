@@ -16,7 +16,12 @@ export interface IOrder extends Document {
   stripeSessionId?: string;
   paidAt?: Date;
   stockHeld: boolean;
+  // A cancelled order whose card payment still has to be returned.
+  refundPending?: boolean;
+  refundedAt?: Date;
+  refundId?: string;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -50,6 +55,13 @@ const orderSchema = new Schema<IOrder>(
     // flipping this to false, so it can't be returned twice, or returned for
     // units the order never actually took.
     stockHeld: { type: Boolean, default: false },
+    // Set when an order is cancelled after the customer paid, and cleared once
+    // Stripe has returned the money. Only orders carrying it are ever refunded
+    // automatically — orders cancelled before refunds existed (and may have
+    // been refunded by hand in the Stripe dashboard) never are.
+    refundPending: Boolean,
+    refundedAt: Date,
+    refundId: String,
   },
   { timestamps: true }
 );

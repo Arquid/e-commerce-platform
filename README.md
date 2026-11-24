@@ -34,7 +34,7 @@ A full-stack e-commerce web application built with React, Node.js/Express, Mongo
 - Rate limiting and security headers (Helmet) on the API
 - A 404 page for unmatched routes and an error boundary so a single broken page can't blank out the whole app
 - Admin-only product management UI (list, add, delete) at `/admin/products`
-- Admin-only order management UI (list every order, update its status) at `/admin/orders`. Status changes follow fixed rules: `paid → shipped → delivered`, and pending or paid orders can be cancelled. Only a confirmed Stripe payment can mark an order `paid` — never an admin by hand. Cancelling a pending order first closes its Stripe checkout page (and is refused if the customer has already paid), and cancelling a paid order puts its items back in stock. If a payment ever does arrive for an order cancelled before it was paid, it's recorded in the audit log instead of being dropped silently
+- Admin-only order management UI (list every order, update its status) at `/admin/orders`. Status changes follow fixed rules: `paid → shipped → delivered`, and pending or paid orders can be cancelled. Only a confirmed Stripe payment can mark an order `paid` — never an admin by hand. Cancelling a pending order first closes its Stripe checkout page (and is refused if the customer has already paid), and cancelling a paid order puts its items back in stock and automatically refunds the customer's card payment in full through Stripe — if Stripe can't make the refund, the order is left as it was and the admin is told to try again, so an order is never cancelled with the money still taken. Refunds are idempotent (a retry can never refund twice), and cancelled orders show "Refunded" or "Refund pending" to admins and to the customer. If a payment ever does arrive for an order cancelled before it was paid, it's recorded in the audit log and refunded automatically instead of being dropped silently; a refund that couldn't be completed (Stripe unreachable, server stopped midway) is retried by the same background sweeper that settles stale checkouts, every 10 minutes. Only orders cancelled with this feature in place are refunded automatically — older cancelled orders are never touched
 - Server-authoritative pricing: checkout only sends `productId` + `quantity`; the API looks up each product's real price and name from the database, so a tampered client request can never change what's charged
 - Audit log of admin actions (product created/deleted, order status changes) with who did what and when, at `/admin/audit-log`. Automatic system actions (below) appear there too, shown as "System"
 - Self-healing checkouts: Stripe normally tells the server when a checkout expires or is paid. If that message is lost (server down, Stripe gave up retrying), the server doesn't depend on it forever — every 10 minutes, and once at startup, it looks at orders that have been pending for 45+ minutes (well past the 31-minute checkout page), asks Stripe directly what happened, and either cancels the order and returns its stock (`checkout.expired_cleanup`) or marks it paid if the customer did pay (`payment.reconciled`). It also repairs any cancelled order that still holds stock. If Stripe can't be reached, the order is left as it is and retried on the next run. It is safe to run on several server instances at once, because every change is an atomic update on an order that must still be pending
@@ -172,7 +172,7 @@ This prints a per-file summary table in the terminal and writes a browsable HTML
 
 | | Statements | Branches | Functions | Lines |
 | --- | --- | --- | --- | --- |
-| Server | 92 % | 82 % | 96 % | 93 % |
+| Server | 93 % | 84 % | 97 % | 94 % |
 | Client | 88 % | 84 % | 78 % | 88 % |
 
 If a change legitimately raises coverage, raise the thresholds with it; don't lower them to get a build through. Plain `npm run test` doesn't check coverage — only `test:coverage` does.
@@ -192,7 +192,7 @@ Every push and pull request to `main` runs a [GitHub Actions workflow](.github/w
 
 This project is a working MVP, not fully production-hardened. Notably:
 
-- Cancelling a paid order restores stock but doesn't refund the customer — refunds are done manually in the Stripe dashboard
+- Refunds are always for the full amount — a partial refund (e.g. one item of several) has to be made by hand in the Stripe dashboard, and an order that was already partly refunded there makes the automatic full refund fail (it then stays "Refund pending" and is retried, so it needs sorting out in the dashboard)
 - A started checkout holds its items for up to ~30 minutes even if the customer never pays (or, if Stripe's expiry notice is lost, until the next sweep after 45 minutes), so a product can briefly show as sold out while someone has it in an unfinished checkout. Each account can hold only one checkout at a time and can open only so many (10 per 15 minutes), but many accounts together could still tie up stock (account sign-ups are rate-limited per IP, which limits this)
 - Orders created before stock reservation was introduced don't hold a reservation, so cancelling one of them won't put stock back (the safe side — it can never add units that aren't really there)
 

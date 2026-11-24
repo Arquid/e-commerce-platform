@@ -9,11 +9,15 @@ function describeEntry(entry: AuditLogEntry): string {
     case "product.delete":
       return `Deleted product "${details.name ?? entry.targetId}"`;
     case "order.status_update":
-      return `Changed order #${entry.targetId?.slice(-6)} status from ${details.from} to ${details.to}`;
+      return `Changed order #${entry.targetId?.slice(-6)} status from ${details.from} to ${details.to}${
+        details.refund === "refunded" ? " and refunded the payment" : ""
+      }`;
+    case "payment.refunded":
+      return `Refunded the payment for cancelled order #${entry.targetId?.slice(-6)}`;
     case "user.role_update":
       return `Changed ${details.email ?? entry.targetId}'s role from ${details.from} to ${details.to}`;
     case "payment.received_for_cancelled_order":
-      return `⚠ Payment received for cancelled order #${entry.targetId?.slice(-6)} — the customer was charged; refund it in Stripe`;
+      return `⚠ Payment received for cancelled order #${entry.targetId?.slice(-6)} — the customer was charged and is being refunded automatically`;
     case "checkout.expired_cleanup":
       return `Cancelled abandoned order #${entry.targetId?.slice(-6)} and returned its stock (Stripe never reported the checkout as expired)`;
     case "payment.reconciled":

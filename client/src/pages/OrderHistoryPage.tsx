@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useGetMyOrdersQuery } from "../features/orders/ordersApiSlice";
 import Pagination from "../components/Pagination";
+import { refundLabel } from "../utils/refundLabel";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700",
@@ -48,6 +49,7 @@ export default function OrderHistoryPage() {
                 <div>
                   <p className="font-medium text-slate-900">Order #{o._id.slice(-6)}</p>
                   <p className="text-sm text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</p>
+                  {refundLabel(o) && <p className="text-xs text-slate-500">{refundLabel(o)}</p>}
                 </div>
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${statusStyles[o.status] ?? "bg-slate-100 text-slate-700"}`}

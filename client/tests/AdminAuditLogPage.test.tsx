@@ -112,6 +112,36 @@ describe("AdminAuditLogPage", () => {
     expect(screen.getAllByText("System")).toHaveLength(2);
   });
 
+  it("describes refunds, whether an admin's cancellation or the system's", () => {
+    mockGetAuditLogs(
+      [
+        {
+          _id: "log7",
+          action: "order.status_update",
+          targetType: "Order",
+          targetId: "order333333",
+          details: { from: "paid", to: "cancelled", refund: "refunded" },
+          admin: { _id: "a1", name: "Admin", email: "admin@example.com" },
+          createdAt: "2026-01-07T00:00:00.000Z",
+        },
+        {
+          _id: "log8",
+          action: "payment.refunded",
+          targetType: "Order",
+          targetId: "order444444",
+          details: { reason: "retry" },
+          createdAt: "2026-01-08T00:00:00.000Z",
+        },
+      ] as AuditLogEntry[],
+      false
+    );
+    render(<AdminAuditLogPage />);
+    expect(
+      screen.getByText("Changed order #333333 status from paid to cancelled and refunded the payment")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Refunded the payment for cancelled order #444444")).toBeInTheDocument();
+  });
+
   it("describes a user role update entry", () => {
     const roleEntry: AuditLogEntry = {
       _id: "log3",

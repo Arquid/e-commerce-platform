@@ -9,6 +9,7 @@ import { httpError } from "../utils/httpError";
 import { reserveStock, releaseReservation } from "../utils/stock";
 import { closeCheckoutSession } from "../utils/checkoutSession";
 import { cancelPendingOrder, markPendingOrderPaid } from "../utils/pendingOrders";
+import { refundCancelledOrder } from "../utils/refunds";
 import { CHECKOUT_EXPIRY_SECONDS, IN_FLIGHT_GRACE_MS } from "../config/checkout";
 
 // A customer has at most one open checkout. Stripe's "back" link returns them
@@ -160,7 +161,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
       // redelivery of this event a no-op instead of a duplicate entry.
       const flagged = await Order.findOneAndUpdate(
         { _id: session.metadata?.orderId, status: "cancelled", paidAt: { $exists: false } },
-        { paidAt: new Date() }
+        { paidAt: new Date(), refundPending: true }
       );
       if (flagged) {
         await AuditLog.create({
@@ -169,6 +170,14 @@ export const handleWebhook = async (req: Request, res: Response) => {
           targetId: flagged.id,
           details: { stripeSessionId: session.id, amountTotal: session.amount_total },
         });
+        // Give the money back right away. If that fails, the order stays
+        // flagged and the stale-checkout sweeper retries it — and either way
+        // Stripe still gets its 200, since redelivering this event wouldn't help.
+        try {
+          await refundCancelledOrder(flagged._id, "payment_for_cancelled_order");
+        } catch (err) {
+          console.error(`Could not refund the payment for cancelled order ${flagged.id}`, err);
+        }
       }
     }
   } else if (event.type === "checkout.session.expired") {

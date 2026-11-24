@@ -64,6 +64,18 @@ describe("OrderHistoryPage", () => {
     expect(screen.getByText("12.50 €")).toBeInTheDocument();
   });
 
+  it("tells the customer whether a cancelled order's payment has been refunded", () => {
+    mockOrders([
+      { ...paidOrder, _id: "order000ref111", status: "cancelled", refundedAt: "2026-03-16T10:00:00.000Z" },
+      { ...paidOrder, _id: "order000pen222", status: "cancelled", refundPending: true },
+      { ...paidOrder, _id: "order000non333", status: "cancelled" },
+    ]);
+    renderWithProviders(<OrderHistoryPage />);
+
+    expect(screen.getAllByText("Refunded")).toHaveLength(1);
+    expect(screen.getAllByText("Refund pending")).toHaveLength(1);
+  });
+
   it("requests the chosen page when a page button is clicked", () => {
     mockOrders([paidOrder], { page: 1, pages: 3 });
     renderWithProviders(<OrderHistoryPage />);

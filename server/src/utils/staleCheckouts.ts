@@ -1,6 +1,7 @@
 import Order from "../models/Order";
 import AuditLog from "../models/AuditLog";
-import { STALE_CHECKOUT_AFTER_MS } from "../config/checkout";
+import { STALE_CHECKOUT_AFTER_MS, REFUND_RETRY_AFTER_MS } from "../config/checkout";
+import { refundCancelledOrder } from "./refunds";
 import { closeCheckoutSession } from "./checkoutSession";
 import { cancelPendingOrder, markPendingOrderPaid } from "./pendingOrders";
 import { releaseOrderStock } from "./stock";
@@ -12,6 +13,7 @@ export interface SweepSummary {
   cancelled: number;
   markedPaid: number;
   stockRepaired: number;
+  refunded: number;
   failed: number;
 }
 
@@ -26,7 +28,7 @@ export interface SweepSummary {
 // change is an atomic update on an order that must still be pending, so only
 // one run acts on a given order and the others find nothing left to do.
 export async function sweepStaleCheckouts(now = Date.now()): Promise<SweepSummary> {
-  const summary: SweepSummary = { cancelled: 0, markedPaid: 0, stockRepaired: 0, failed: 0 };
+  const summary: SweepSummary = { cancelled: 0, markedPaid: 0, stockRepaired: 0, refunded: 0, failed: 0 };
 
   const stale = await Order.find({
     status: "pending",
@@ -79,6 +81,24 @@ export async function sweepStaleCheckouts(now = Date.now()): Promise<SweepSummar
     } catch (err) {
       summary.failed++;
       console.error(`Could not return stock held by cancelled order ${order.id}`, err);
+    }
+  }
+
+  // Money still owed to customers whose orders were cancelled: the refund
+  // failed (Stripe unreachable) or the server stopped before making it.
+  const unrefunded = await Order.find({
+    status: "cancelled",
+    refundPending: true,
+    updatedAt: { $lt: new Date(now - REFUND_RETRY_AFTER_MS) },
+  })
+    .sort({ updatedAt: 1 })
+    .limit(BATCH_SIZE);
+  for (const order of unrefunded) {
+    try {
+      if ((await refundCancelledOrder(order._id, "retry")) === "refunded") summary.refunded++;
+    } catch (err) {
+      summary.failed++;
+      console.error(`Could not refund cancelled order ${order.id}`, err);
     }
   }
 

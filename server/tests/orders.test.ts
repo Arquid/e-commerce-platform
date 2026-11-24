@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import request from "supertest";
+import Stripe from "stripe";
 import app from "../src/app";
+import AuditLog from "../src/models/AuditLog";
 import { stripe } from "../src/config/stripe";
 import User from "../src/models/User";
 import Order from "../src/models/Order";
@@ -17,6 +19,7 @@ vi.mock("../src/config/stripe", () => ({
         retrieve: vi.fn(),
       },
     },
+    refunds: { create: vi.fn() },
   },
 }));
 
@@ -279,5 +282,166 @@ describe("PATCH /api/orders/:id/status", () => {
 
     expect(res.status).toBe(200);
     expect((await Product.findById(productId))!.stock).toBe(stockBefore);
+  });
+});
+
+describe("refunds when an admin cancels a paid order", () => {
+  const paidSession = { payment_status: "paid", payment_intent: "pi_test_1" } as any;
+
+  // Undo the console / Order.updateOne spies some of these tests install.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function paidOrder(email: string, sessionId: string | null = "cs_test_paid_order") {
+    const alice = await registerAndLogin(`alice-${email}`);
+    const admin = await registerAndLogin(`admin-${email}`, "admin");
+    const order = await createOrderFor(alice.user.id, "paid", sessionId ?? undefined);
+    await Order.updateOne({ _id: order._id }, { stockHeld: true, paidAt: new Date() });
+    return { admin, order };
+  }
+
+  const cancel = (admin: Awaited<ReturnType<typeof registerAndLogin>>, id: string) =>
+    admin.agent.patch(`/api/orders/${id}/status`).send({ status: "cancelled" });
+
+  it("returns the customer's payment in full and records it on the order", async () => {
+    const { admin, order } = await paidOrder("refund1@example.com");
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce(paidSession);
+    vi.mocked(stripe.refunds.create).mockResolvedValueOnce({ id: "re_test_1" } as any);
+
+    const res = await cancel(admin, order.id);
+
+    expect(res.status).toBe(200);
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      { payment_intent: "pi_test_1" },
+      { idempotencyKey: `refund-order-${order.id}` }
+    );
+    const after = await Order.findById(order.id);
+    expect(after).toMatchObject({ status: "cancelled", refundId: "re_test_1", stockHeld: false });
+    expect(after!.refundedAt).toBeInstanceOf(Date);
+    expect(after!.refundPending).toBeUndefined();
+    // The response already shows the refund.
+    expect(res.body.refundId).toBe("re_test_1");
+    expect(await AuditLog.findOne({ action: "order.status_update" })).toMatchObject({
+      details: { from: "paid", to: "cancelled", refund: "refunded" },
+    });
+  });
+
+  it("accepts a payment intent that Stripe returns expanded", async () => {
+    const { admin, order } = await paidOrder("refund2@example.com");
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({
+      payment_status: "paid",
+      payment_intent: { id: "pi_expanded" },
+    } as any);
+    vi.mocked(stripe.refunds.create).mockResolvedValueOnce({ id: "re_test_2" } as any);
+
+    expect((await cancel(admin, order.id)).status).toBe(200);
+    expect(stripe.refunds.create).toHaveBeenCalledWith({ payment_intent: "pi_expanded" }, expect.anything());
+  });
+
+  it("leaves the order paid, its stock held and nothing logged when the refund fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { admin, order } = await paidOrder("refund3@example.com");
+    const productId = order.items[0].product;
+    const stockBefore = (await Product.findById(productId))!.stock;
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce(paidSession);
+    vi.mocked(stripe.refunds.create).mockRejectedValueOnce(new Error("stripe is down"));
+
+    const res = await cancel(admin, order.id);
+
+    expect(res.status).toBe(502);
+    expect(res.body.message).toMatch(/left unchanged/);
+    const after = await Order.findById(order.id);
+    expect(after).toMatchObject({ status: "paid", stockHeld: true });
+    expect(after!.refundPending).toBeUndefined();
+    expect(after!.refundedAt).toBeUndefined();
+    expect((await Product.findById(productId))!.stock).toBe(stockBefore);
+    expect(await AuditLog.countDocuments({ action: "order.status_update" })).toBe(0);
+  });
+
+  it("can be retried after a failed refund without refunding twice", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { admin, order } = await paidOrder("refund4@example.com");
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValue(paidSession);
+    vi.mocked(stripe.refunds.create)
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce({ id: "re_test_4" } as any);
+
+    expect((await cancel(admin, order.id)).status).toBe(502);
+    expect((await cancel(admin, order.id)).status).toBe(200);
+
+    // Both attempts carried the same idempotency key, so Stripe treats them as one refund.
+    const keys = vi.mocked(stripe.refunds.create).mock.calls.map((c) => c[1]);
+    expect(keys).toEqual([{ idempotencyKey: `refund-order-${order.id}` }, { idempotencyKey: `refund-order-${order.id}` }]);
+    expect((await Order.findById(order.id))!.refundId).toBe("re_test_4");
+  });
+
+  it("treats a payment that was already refunded in the Stripe dashboard as done", async () => {
+    const { admin, order } = await paidOrder("refund5@example.com");
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce(paidSession);
+    vi.mocked(stripe.refunds.create).mockRejectedValueOnce(
+      new Stripe.errors.StripeInvalidRequestError({ type: "invalid_request_error", code: "charge_already_refunded", message: "already refunded" })
+    );
+
+    const res = await cancel(admin, order.id);
+
+    expect(res.status).toBe(200);
+    const after = await Order.findById(order.id);
+    expect(after!.status).toBe("cancelled");
+    expect(after!.refundedAt).toBeInstanceOf(Date);
+    expect(after!.refundId).toBeUndefined();
+  });
+
+  it("cancels an order that has no Stripe payment to refund, without calling Stripe", async () => {
+    const { admin, order } = await paidOrder("refund6@example.com", null);
+
+    const res = await cancel(admin, order.id);
+
+    expect(res.status).toBe(200);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+    const after = await Order.findById(order.id);
+    expect(after!.status).toBe("cancelled");
+    expect(after!.refundedAt).toBeUndefined();
+    expect(after!.refundPending).toBeUndefined();
+    expect(await AuditLog.findOne({ action: "order.status_update" })).toMatchObject({
+      details: { refund: "nothing_to_refund" },
+    });
+  });
+
+  it("does not refund a session that was never paid", async () => {
+    const { admin, order } = await paidOrder("refund7@example.com");
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({ payment_status: "unpaid", payment_intent: null } as any);
+
+    expect((await cancel(admin, order.id)).status).toBe(200);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+
+  it("never refunds when an order is shipped rather than cancelled", async () => {
+    const { admin, order } = await paidOrder("refund8@example.com");
+
+    const res = await admin.agent.patch(`/api/orders/${order.id}/status`).send({ status: "shipped" });
+
+    expect(res.status).toBe(200);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+    expect((await Order.findById(order.id))!.refundPending).toBeUndefined();
+  });
+
+  it("keeps the order flagged for the sweeper if the refund went through but couldn't be recorded", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { admin, order } = await paidOrder("refund9@example.com");
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce(paidSession);
+    vi.mocked(stripe.refunds.create).mockResolvedValueOnce({ id: "re_test_9" } as any);
+    // The first update this request makes after Stripe answers is the one that
+    // records the refund; make it fail once.
+    const real = Order.updateOne.bind(Order);
+    vi.spyOn(Order, "updateOne").mockImplementationOnce((() => Promise.reject(new Error("db blip"))) as any).mockImplementation(real as any);
+
+    const res = await cancel(admin, order.id);
+
+    // The money is back, so the order must stay cancelled rather than flip to "paid".
+    expect(res.status).toBe(200);
+    const after = await Order.findById(order.id);
+    expect(after).toMatchObject({ status: "cancelled", refundPending: true });
+    expect(after!.refundedAt).toBeUndefined();
   });
 });

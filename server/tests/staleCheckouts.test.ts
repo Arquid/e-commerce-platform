@@ -16,11 +16,13 @@ vi.mock("../src/config/stripe", () => ({
         retrieve: vi.fn(),
       },
     },
+    refunds: { create: vi.fn() },
   },
 }));
 
 const expire = vi.mocked(stripe.checkout.sessions.expire);
 const retrieve = vi.mocked(stripe.checkout.sessions.retrieve);
+const createRefund = vi.mocked(stripe.refunds.create);
 
 beforeAll(connectTestDb);
 afterEach(clearTestDb);
@@ -29,6 +31,7 @@ afterAll(disconnectTestDb);
 beforeEach(() => {
   expire.mockReset();
   retrieve.mockReset();
+  createRefund.mockReset();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -127,7 +130,7 @@ describe("sweepStaleCheckouts", () => {
 
     const summary = await sweepStaleCheckouts();
 
-    expect(summary).toEqual({ cancelled: 0, markedPaid: 0, stockRepaired: 0, failed: 0 });
+    expect(summary).toEqual({ cancelled: 0, markedPaid: 0, stockRepaired: 0, refunded: 0, failed: 0 });
     expect(expire).not.toHaveBeenCalled();
     expect((await Order.findById(order.id))!.status).toBe("pending");
     expect(await stockOf(product.id)).toBe(8);
@@ -185,5 +188,87 @@ describe("sweepStaleCheckouts", () => {
 
     expect(await stockOf(product.id)).toBe(10);
     expect(await AuditLog.countDocuments({ action: "checkout.expired_cleanup" })).toBe(1);
+  });
+
+  describe("refunds still owed on cancelled orders", () => {
+    const paidSession = { payment_status: "paid", payment_intent: "pi_sweep" } as never;
+
+    async function cancelledOrderOwingRefund(productId: string) {
+      const order = await createOrder(productId, { status: "cancelled", stockHeld: false });
+      await Order.updateOne({ _id: order._id }, { paidAt: new Date(), refundPending: true });
+      return order;
+    }
+
+    it("refunds the customer and records it as a system event", async () => {
+      const product = await createProduct(8);
+      const order = await cancelledOrderOwingRefund(product.id);
+      retrieve.mockResolvedValue(paidSession);
+      createRefund.mockResolvedValue({ id: "re_sweep" } as never);
+
+      const summary = await sweepStaleCheckouts(later());
+
+      expect(summary).toMatchObject({ refunded: 1, failed: 0 });
+      expect(createRefund).toHaveBeenCalledWith(
+        { payment_intent: "pi_sweep" },
+        { idempotencyKey: `refund-order-${order.id}` }
+      );
+      const after = await Order.findById(order.id);
+      expect(after).toMatchObject({ refundId: "re_sweep" });
+      expect(after!.refundPending).toBeUndefined();
+      const entry = await AuditLog.findOne({ action: "payment.refunded" });
+      expect(entry).toMatchObject({ targetId: order.id, details: { reason: "retry" } });
+      expect(entry!.admin).toBeUndefined();
+    });
+
+    it("refunds once even if run again or twice at the same time", async () => {
+      const product = await createProduct(8);
+      await cancelledOrderOwingRefund(product.id);
+      retrieve.mockResolvedValue(paidSession);
+      createRefund.mockResolvedValue({ id: "re_sweep" } as never);
+
+      await Promise.all([sweepStaleCheckouts(later()), sweepStaleCheckouts(later())]);
+      await sweepStaleCheckouts(later());
+
+      // Concurrent runs may both reach Stripe, but under one idempotency key, so
+      // Stripe makes a single refund; either way the order is recorded once.
+      const keys = new Set(createRefund.mock.calls.map((c) => (c[1] as { idempotencyKey: string }).idempotencyKey));
+      expect(keys.size).toBe(1);
+      expect(await Order.countDocuments({ refundId: "re_sweep" })).toBe(1);
+    });
+
+    it("leaves a refund alone that a request is probably making right now", async () => {
+      const product = await createProduct(8);
+      const order = await cancelledOrderOwingRefund(product.id);
+
+      const summary = await sweepStaleCheckouts();
+
+      expect(summary.refunded).toBe(0);
+      expect(retrieve).not.toHaveBeenCalled();
+      expect((await Order.findById(order.id))!.refundPending).toBe(true);
+    });
+
+    it("never refunds a cancelled order that wasn't flagged — e.g. one refunded by hand before this existed", async () => {
+      const product = await createProduct(8);
+      const order = await createOrder(product.id, { status: "cancelled", stockHeld: false });
+      await Order.updateOne({ _id: order._id }, { paidAt: new Date() });
+
+      await sweepStaleCheckouts(later());
+
+      expect(createRefund).not.toHaveBeenCalled();
+      expect(retrieve).not.toHaveBeenCalled();
+    });
+
+    it("keeps the order flagged when Stripe fails, and carries on", async () => {
+      const product = await createProduct(8);
+      const order = await cancelledOrderOwingRefund(product.id);
+      retrieve.mockResolvedValue(paidSession);
+      createRefund.mockRejectedValue(new Error("stripe is down"));
+
+      const summary = await sweepStaleCheckouts(later());
+
+      expect(summary).toMatchObject({ refunded: 0, failed: 1 });
+      expect((await Order.findById(order.id))!.refundPending).toBe(true);
+      expect(await AuditLog.countDocuments({ action: "payment.refunded" })).toBe(0);
+    });
   });
 });

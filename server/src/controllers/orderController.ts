@@ -5,6 +5,7 @@ import { logAdminAction } from "../utils/auditLog";
 import { httpError } from "../utils/httpError";
 import { releaseOrderStock } from "../utils/stock";
 import { closeCheckoutSession } from "../utils/checkoutSession";
+import { refundOrder, RefundOutcome } from "../utils/refunds";
 
 type OrderStatus = IOrder["status"];
 
@@ -78,20 +79,46 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   // Conditional on the status we validated against, so a concurrent change
   // (e.g. the webhook marking it paid) fails this update instead of being
   // silently overwritten by it.
+  // Cancelling a paid order also returns the customer's money; flagging it
+  // here, in the same update, lets the sweeper finish the job if this request
+  // dies before the refund is made.
+  const refundsPayment = from === "paid" && to === "cancelled";
   const updated = await Order.findOneAndUpdate(
     { _id: order._id, status: from },
-    { status: to },
+    refundsPayment ? { status: to, refundPending: true } : { status: to },
     { returnDocument: "after" }
   );
   if (!updated) {
     throw httpError("This order was just changed by someone else — reload and try again.", 409);
   }
 
+  let refund: RefundOutcome | undefined;
+  if (refundsPayment) {
+    try {
+      refund = await refundOrder(updated._id);
+    } catch (err) {
+      // Cancelling without having returned the money would leave the customer
+      // charged for nothing, so put the order back as it was (nothing has
+      // been shipped, and its stock was never released) and let the admin retry.
+      console.error(`Could not refund order ${updated.id}`, err);
+      await Order.updateOne(
+        { _id: updated._id, status: "cancelled", refundedAt: { $exists: false } },
+        { $set: { status: "paid" }, $unset: { refundPending: 1 } }
+      );
+      throw httpError("Could not refund the customer's payment, so the order was left unchanged. Try again in a moment.", 502);
+    }
+  }
+
   // Covers both a reserved (pending) and a sold (paid) order — whichever
   // units this order actually took out of stock, and only those, go back.
   if (to === "cancelled") await releaseOrderStock(updated._id);
 
-  await logAdminAction(req.userId as string, "order.status_update", "Order", updated.id, { from, to });
+  await logAdminAction(req.userId as string, "order.status_update", "Order", updated.id, {
+    from,
+    to,
+    ...(refund ? { refund } : {}),
+  });
 
-  res.json(updated);
+  // Re-read, so a refund just made shows in the response.
+  res.json((await Order.findById(updated._id)) ?? updated);
 };

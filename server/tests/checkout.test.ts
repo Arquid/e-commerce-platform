@@ -21,6 +21,7 @@ vi.mock("../src/config/stripe", () => ({
         retrieve: vi.fn(),
       },
     },
+    refunds: { create: vi.fn() },
     webhooks: {
       constructEvent: vi.fn(),
     },
@@ -547,6 +548,12 @@ describe("POST /api/payments/webhook", () => {
     await Order.findByIdAndUpdate(orderId, { status: "cancelled" });
     const order = await Order.findById(orderId);
     const stockBefore = (await Product.findById(order!.items[0].product))!.stock;
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({
+      payment_status: "paid",
+      payment_intent: "pi_late",
+    } as any);
+    vi.mocked(stripe.refunds.create).mockClear();
+    vi.mocked(stripe.refunds.create).mockResolvedValueOnce({ id: "re_late" } as any);
 
     const completedEvent = {
       type: "checkout.session.completed",
@@ -573,6 +580,45 @@ describe("POST /api/payments/webhook", () => {
     const after = await Order.findById(orderId);
     expect(after?.status).toBe("cancelled");
     expect((await Product.findById(order!.items[0].product))!.stock).toBe(stockBefore);
+
+    // The customer was charged for an order that won't ship, so the money is
+    // returned automatically — once, however often Stripe redelivers the event.
+    expect(stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      { payment_intent: "pi_late" },
+      { idempotencyKey: `refund-order-${orderId}` }
+    );
+    expect(after).toMatchObject({ refundId: "re_late" });
+    expect(after!.refundedAt).toBeInstanceOf(Date);
+    expect(after!.refundPending).toBeUndefined();
+    const refunded = await AuditLog.find({ action: "payment.refunded" });
+    expect(refunded).toHaveLength(1);
+    expect(refunded[0]).toMatchObject({ targetId: orderId, details: { reason: "payment_for_cancelled_order" } });
+  });
+
+  it("still answers Stripe 200, and leaves the order flagged for a retry, when that refund fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const orderId = await createPendingOrder("webhook-refund-fails@example.com");
+    await Order.findByIdAndUpdate(orderId, { status: "cancelled" });
+    vi.mocked(stripe.checkout.sessions.retrieve).mockResolvedValueOnce({
+      payment_status: "paid",
+      payment_intent: "pi_late2",
+    } as any);
+    vi.mocked(stripe.refunds.create).mockRejectedValueOnce(new Error("stripe is down"));
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValueOnce({
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_test_123", amount_total: 1000, metadata: { orderId } } },
+    } as any);
+
+    const res = await deliverWebhook();
+
+    expect(res.status).toBe(200);
+    const after = await Order.findById(orderId);
+    expect(after).toMatchObject({ status: "cancelled", refundPending: true });
+    expect(after!.refundedAt).toBeUndefined();
+    // The payment is still flagged for an admin to see, refunded or not.
+    expect(await AuditLog.countDocuments({ action: "payment.received_for_cancelled_order" })).toBe(1);
+    expect(await AuditLog.countDocuments({ action: "payment.refunded" })).toBe(0);
   });
 
   it("does not flag a redelivered payment for an order that was paid and cancelled afterwards", async () => {

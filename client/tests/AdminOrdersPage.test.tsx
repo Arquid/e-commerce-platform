@@ -75,6 +75,24 @@ describe("AdminOrdersPage", () => {
     expect(screen.getByRole("combobox")).toHaveValue("paid");
   });
 
+  it("shows whether a cancelled order's payment was refunded, and nothing for other orders", () => {
+    mockGetAllOrders(
+      [
+        { ...mockOrder, _id: "order00ref111", status: "cancelled", refundedAt: "2026-01-02T00:00:00.000Z" },
+        { ...mockOrder, _id: "order00pen222", status: "cancelled", refundPending: true },
+        { ...mockOrder, _id: "order00non333", status: "cancelled" },
+        mockOrder,
+      ],
+      false
+    );
+    mockUpdateOrderStatus(vi.fn());
+
+    render(<AdminOrdersPage />);
+
+    expect(screen.getAllByText("Refunded")).toHaveLength(1);
+    expect(screen.getAllByText("Refund pending")).toHaveLength(1);
+  });
+
   it("calls the mutation when a new status is selected", async () => {
     const trigger = vi.fn().mockReturnValue({ unwrap: () => Promise.resolve(mockOrder) });
     mockGetAllOrders([mockOrder], false);

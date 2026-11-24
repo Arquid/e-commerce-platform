@@ -3,6 +3,7 @@ import { useGetAllOrdersQuery, useUpdateOrderStatusMutation } from "../features/
 import type { OrderStatus } from "../features/orders/ordersApiSlice";
 import Pagination from "../components/Pagination";
 import { getErrorMessage } from "../utils/errorMessage";
+import { refundLabel } from "../utils/refundLabel";
 
 // Mirrors the server's allowed transitions (orderController.ts) so the menu
 // only offers moves that will succeed — the server is what enforces them.
@@ -78,6 +79,7 @@ export default function AdminOrdersPage() {
                       </option>
                     ))}
                   </select>
+                  {refundLabel(o) && <span className="text-xs text-slate-500">{refundLabel(o)}</span>}
                   {failure?.orderId === o._id && (
                     <span className="max-w-xs text-right text-xs text-red-600">{failure.message}</span>
                   )}

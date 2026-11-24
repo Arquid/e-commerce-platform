@@ -12,7 +12,7 @@ import { sweepStaleCheckouts } from "./utils/staleCheckouts";
 connectDB().then(() =>
   runPeriodically(async () => {
     const summary = await sweepStaleCheckouts();
-    if (summary.cancelled || summary.markedPaid || summary.stockRepaired) {
+    if (summary.cancelled || summary.markedPaid || summary.stockRepaired || summary.refunded) {
       console.log("Stale checkout sweep:", summary);
     }
   }, STALE_CHECKOUT_SWEEP_INTERVAL_MS)
