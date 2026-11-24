@@ -55,22 +55,31 @@
 
 ## 🚀 Quick start
 
-**You need:** Node.js 20+ (24 recommended), a MongoDB database (a free [Atlas](https://www.mongodb.com/cloud/atlas) cluster works), a [Stripe](https://dashboard.stripe.com/register) account in test mode, and the [Stripe CLI](https://docs.stripe.com/stripe-cli).
+**You need:** Node.js 20.19+ (24 recommended), a MongoDB database (a free [Atlas](https://www.mongodb.com/cloud/atlas) cluster works), a [Stripe](https://dashboard.stripe.com/register) account in test mode, and the [Stripe CLI](https://docs.stripe.com/stripe-cli).
 
 **1. Install and configure**
 
 ```bash
-cd server && npm install && cp .env.example .env
-cd ../client && npm install && cp .env.example .env
+cd server
+npm install
+cp .env.example .env
+cd ../client
+npm install
+cp .env.example .env
+cd ..
 ```
 
-Edit `server/.env`: set `MONGO_URI`, a long random `JWT_SECRET`, and your Stripe test `STRIPE_SECRET_KEY`.
+Edit `server/.env`: set `MONGO_URI`, a long random `JWT_SECRET`, and your Stripe test `STRIPE_SECRET_KEY` (the `STRIPE_WEBHOOK_SECRET` comes in step 3). The client's `.env` works as it is.
 
 **2. Add sample products**
 
 ```bash
-cd server && npm run seed
+cd server
+npm run seed
+cd ..
 ```
+
+> ⚠️ The seed script **deletes every existing product** before adding the samples, so only run it on a database you're happy to reset.
 
 **3. Connect Stripe's webhook**
 
@@ -79,7 +88,7 @@ stripe login
 stripe listen --forward-to localhost:5000/api/payments/webhook
 ```
 
-Copy the `whsec_...` value it prints into `server/.env` as `STRIPE_WEBHOOK_SECRET`.
+Copy the `whsec_...` value it prints into `server/.env` as `STRIPE_WEBHOOK_SECRET`, then stop it with `Ctrl+C` — step 4 starts it again. (The secret stays the same on later runs.)
 
 **4. Run everything** from the repository root (server, client and Stripe listener together):
 
@@ -144,7 +153,7 @@ npm run lint                 # ESLint (run in either folder)
 npm run test:coverage        # tests + coverage report (run in either folder)
 ```
 
-- The backend suite needs no `.env` file — test values are set in `server/tests/setupEnv.ts`. The frontend suite needs Node 22.22+ or 24.15+ (a `jsdom` requirement).
+- The backend suite needs no `.env` file — test values are set in `server/tests/setupEnv.ts`. For the frontend suite, `jsdom` officially supports Node 22.22.2+ or 24.15+; other versions may still run it, but unsupported.
 - `test:coverage` writes an HTML report to `coverage/index.html` and **fails if coverage drops below the minimums** below. Raise them when coverage improves; never lower them to get a build through.
 
 | | Statements | Branches | Functions | Lines |
