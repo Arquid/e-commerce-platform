@@ -12,19 +12,21 @@ export const getProducts = async (req: Request, res: Response) => {
     maxPrice,
   } = res.locals.query as { page: number; limit: number; minPrice?: number; maxPrice?: number };
 
-  const filter: Record<string, any> = {};
+  const filter: Record<string, unknown> = {};
   if (category) filter.category = category;
   if (minPrice !== undefined || maxPrice !== undefined) {
-    filter.price = {};
-    if (minPrice !== undefined) filter.price.$gte = minPrice;
-    if (maxPrice !== undefined) filter.price.$lte = maxPrice;
+    const price: { $gte?: number; $lte?: number } = {};
+    if (minPrice !== undefined) price.$gte = minPrice;
+    if (maxPrice !== undefined) price.$lte = maxPrice;
+    filter.price = price;
   }
   if (search) filter.$text = { $search: String(search) };
 
-  const sortOption = sort === "price_asc" ? { price: 1 } : sort === "price_desc" ? { price: -1 } : { createdAt: -1 };
+  const sortOption: Record<string, 1 | -1> =
+    sort === "price_asc" ? { price: 1 } : sort === "price_desc" ? { price: -1 } : { createdAt: -1 };
 
   const [products, total] = await Promise.all([
-    Product.find(filter).sort(sortOption as any).skip((pageNum - 1) * limitNum).limit(limitNum),
+    Product.find(filter).sort(sortOption).skip((pageNum - 1) * limitNum).limit(limitNum),
     Product.countDocuments(filter)
   ]);
 

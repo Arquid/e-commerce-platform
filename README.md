@@ -149,6 +149,8 @@ npm run test
 
 Tests run against an isolated in-memory MongoDB instance (via `mongodb-memory-server`) and a mocked Stripe client — they never touch the real database or make real Stripe API calls. Environment variables used by the app (JWT secret, Stripe key, etc.) are set to fixed test values in `server/tests/setupEnv.ts`, so the suite doesn't depend on a local `.env` file existing. That same setup file sets `NODE_ENV=test`, which the API rate limiters check to skip themselves — otherwise the auth rate limit (10 requests / 15 min) would trip mid-suite, since tests register/log in far more often than a real user would. See `server/tests/`.
 
+Both packages are linted with ESLint (`npm run lint` in `server/` or `client/`), which CI also runs. The server config (`server/eslint.config.mjs`) uses the recommended JavaScript and TypeScript rules; names starting with `_` mark deliberately unused values, and tests may use `as any` for partial Stripe/Mongoose stand-ins.
+
 **Frontend** — covers the Redux slices (`cartSlice`, `authSlice`), the route guards and session bootstrap (`PrivateRoute`, `AdminRoute`, `AuthBootstrap`), and every page plus the shared components (`HomePage`, `ProductDetailPage`, `CartPage`, `LoginPage`, `RegisterPage`, `OrderHistoryPage`, `OrderSuccessPage`, `NotFoundPage`, `AdminProductsPage`, `AdminOrdersPage`, `AdminAuditLogPage`, `AdminUsersPage`, `ProductCard`, `Navbar`, `Pagination`, `ErrorBoundary`):
 
 ```bash
